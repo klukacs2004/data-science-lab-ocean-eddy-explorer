@@ -97,39 +97,6 @@ These are OSU U.S. West Coast results inspired by Escudier et al.'s
         </p>
     </section>
 
-    <section id="environment">
-        <h2>2. Prepare the environment</h2>
-        <p>
-Obtain the project source and open a terminal in its root directory,
-            where <code>requirements.txt</code>, <code>scripts/</code>, and
-            <code>method_website/</code> are located. The commands below use Linux
-        or WSL and Python 3.12. The inspected environment uses
-            <strong>Python 3.12.3 on Linux x86-64</strong>.
-        </p>
-        <pre><code>python3.12 -m venv .venv
-.venv/bin/python -m pip install -r requirements.txt
-.venv/bin/python -m pip check
-.venv/bin/python method_website/manage.py check</code></pre>
-        <p>
-            Use the pinned dependency versions in <code>requirements.txt</code>.
-        The numerical stack includes NumPy 2.5.3, SciPy 1.18.1, pandas 3.0.6,
-        xarray 2026.9.0, netCDF4 1.7.4, scikit-image 0.26.0, and Matplotlib
-        3.11.2. Django 5.2.18 serves the website. The background comparison
-        worker uses POSIX file locking, so Linux or WSL is the straightforward
-        environment for the complete website workflow.
-        </p>
-        <p>
-The batch analysis does not need a running Django server or a
-        database migration. To open the website locally as well, run:
-        </p>
-        <pre><code>.venv/bin/python method_website/manage.py migrate
-.venv/bin/python method_website/manage.py runserver</code></pre>
-        <p>
-            Open <code>http://127.0.0.1:8000/</code>. The commands in the remaining
-        sections still run from the project root.
-        </p>
-    </section>
-
     <section id="data">
         <h2>3. Obtain and check the data</h2>
         <p>

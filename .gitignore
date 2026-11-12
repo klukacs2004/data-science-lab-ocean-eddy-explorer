@@ -9,7 +9,6 @@ __pycache__/
 # Large source datasets and reproducible detection checkpoints
 /data/
 /artifacts/**/*.pickle
-
 # Machine-local credentials and agent state
 .aws/
 .codex/
