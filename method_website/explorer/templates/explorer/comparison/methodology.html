@@ -1,0 +1,449 @@
+{% extends "explorer/methodology_base.html" %}
+
+{% block title %}
+    Comparison Methodology · Ocean Eddy Explorer
+{% endblock %}
+
+{% block method_title %}
+    Comparing Eddy Detection and Tracking Methods
+{% endblock %}
+
+{% block method_description %}
+    Shared detection inputs and geometry, same-day matching, shared tracking rules, and the interpretation of size, observed span, and radius evolution.
+{% endblock %}
+
+{% block methodology_toc %}
+    <h3>Contents</h3>
+    <a href="#scope">1. Comparison scope and inputs</a>
+    <details class="toc-group" open>
+        <summary>2. Shared detection</summary>
+        <div class="toc-subsections">
+            <a href="#shared-detection">2.1 Independent detectors on one grid</a>
+            <a href="#shared-geometry">2.2 Common centers, areas, and radii</a>
+            <a href="#polarity">2.3 Polarity and boundary reliability</a>
+        </div>
+    </details>
+    <a href="#same-day-matching">3. Matching detections between methods</a>
+    <details class="toc-group" open>
+        <summary>4. Shared tracking</summary>
+        <div class="toc-subsections">
+            <a href="#shared-tracking">4.1 Common association rules</a>
+            <a href="#shared-tracking-score">4.2 Eligibility and matching score</a>
+            <a href="#shared-tracking-assignment">4.3 Assignment and track endings</a>
+        </div>
+    </details>
+    <a href="#comparison-tracking">5. Tracking used by the Comparison page</a>
+    <details class="toc-group">
+        <summary>6. Interpreting the tracking figures</summary>
+        <div class="toc-subsections">
+            <a href="#size-span-distributions">6.1 Figure 7: size and span distributions</a>
+            <a href="#radius-evolution">6.2 Figure 8: radius evolution</a>
+        </div>
+    </details>
+    <a href="#controls-exports">7. Controls and outputs</a>
+    <a href="#limitations">8. Interpretation and limitations</a>
+    <a href="{% url 'comparison' %}">Open the Comparison Explorer →</a>
+{% endblock %}
+
+{% block methodology_content %}
+    <section id="scope">
+        <h2>1. Comparison scope and inputs</h2>
+        <p>
+The Comparison Explorer applies Chelton, Nencioli, and Halo to the
+        daily OSU blended altimetry dataset over the U.S. West Coast, on its
+        0.25° latitude–longitude grid. Daily detection compares one date;
+        tracking compares the same consecutive calendar period for all three
+        methods.
+        </p>
+        <p>
+The source variables are sea-level anomaly (SLA) in metres and
+        eastward and northward geostrophic velocity in metres per second.
+        The daily comparison requires their coordinates to align exactly.
+        The map displays the original SLA in centimetres, including when
+        Chelton uses optional background removal.
+        </p>
+        <p>
+Shared detection means a common source grid and a common description
+        of accepted features. Shared tracking additionally applies the same
+        temporal association rules to each method's detections. These control
+        different parts of the experiment: detection determines which daily
+        features exist; tracking determines how observations are linked.
+        </p>
+        <p>
+The separate shared tracker is described in section 4. The current
+        Comparison page's Tracking mode runs each method's own tracker, as
+        detailed in section 5. Its distributions therefore reflect differences
+        in both detection and temporal association.
+        </p>
+    </section>
+
+    <section id="shared-detection">
+        <h2>2. Shared detection</h2>
+        <h3>2.1 Independent detectors on one grid</h3>
+        <p>
+All three methods analyze the selected source day independently.
+        Their acceptance tests remain method-specific; the comparison does
+        not impose a common boundary or require a feature to be accepted by
+        more than one detector.
+        </p>
+        <div class="table-scroll">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Method</th>
+                        <th>Detection evidence</th>
+                        <th>Comparison defaults</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr><td><a href="{% url 'chelton_methodology' %}">Chelton</a></td><td>Connected SLA threshold regions with shape, extremum, amplitude, and size checks.</td><td>Both polarities; full −100 to +100 cm scan in 1 cm steps; no additional SLA filtering.</td></tr>
+                    <tr><td><a href="{% url 'nencioli_methodology' %}">Nencioli</a></td><td>Velocity reversals, a local speed minimum, and coherent rotation around a center.</td><td>Velocity-search radius a = 4 cells; speed-minimum radius b = 3 cells.</td></tr>
+                    <tr><td><a href="{% url 'halo_methodology' %}">Halo / Okubo–Weiss</a></td><td>Closed height contours associated with a connected negative Okubo–Weiss region.</td><td>2 cm contour interval; 600 km maximum loop diameter; two Hanning passes on W.</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <p>
+Optional custom or paper-scale Gaussian background removal changes
+        only the SLA supplied to Chelton. Nencioli continues to use the supplied
+        velocities, and Halo uses the original SLA and velocities. Halo's
+        Hanning passes smooth W, rather than the height field. These choices
+        should be reported alongside the comparison.
+        </p>
+
+        <h3 id="shared-geometry">2.2 Common centers, areas, and radii</h3>
+        <p>
+Accepted features are represented by a closed geographic contour,
+        a method-local ID, a date, a center, polarity, area, and radius.
+        Fractional grid-index boundaries are interpolated onto latitude and
+        longitude; longitudes are normalized to [−180°, 180°).
+        </p>
+        <p>
+The standardized center is the spherical mean of the contour's
+        distinct boundary vertices. Nencioli's original velocity-based center
+        is retained separately. Every method uses the same spherical polygon
+        area S, with great-circle edges on a sphere of radius 6371 km, and
+        the same area-equivalent radius:
+        </p>
+        <div class="equation">
+            \[
+                R_{\mathrm{eq}}=\sqrt{\frac{S}{\pi}}.
+            \]
+        </div>
+        <p>
+This makes the reported geometry comparable in km² and km. It does
+        not make the underlying boundaries equivalent. Halo's maximum loop
+        diameter is a detection gate and differs from twice this radius.
+        Native amplitude is currently available only for Chelton; missing
+        amplitudes remain unavailable.
+        </p>
+
+        <h3 id="polarity">2.3 Polarity and boundary reliability</h3>
+        <p>
+Chelton SLA maxima are labeled anticyclonic and minima cyclonic
+        for this Northern Hemisphere study. Nencioli uses the detected
+        velocity rotation and hemisphere. The daily comparison classifies
+        Halo from signed, area-weighted contour-mean relative vorticity and
+        the hemisphere; negative W alone carries no rotation sign. Missing,
+        zero, or otherwise unresolved Halo means, and contours touching or
+        crossing the equator, retain unknown polarity.
+        </p>
+        <p>
+Nencioli distinguishes streamfunction boundaries from circular
+        fallback geometry. A fallback or unknown boundary source supplies
+        no reliable physical radius. The daily table and basic statistics
+        report the standardized geometry of all accepted detections; the
+        tracking radius distributions and radius-evolution curves include
+        only reliable, finite, positive radii. Fallback observations can
+        still contribute to track counts and observed spans.
+        </p>
+    </section>
+
+    <section id="same-day-matching">
+        <h2>3. Matching detections between methods</h2>
+        <p>
+Same-day matching proposes correspondences between two detectors'
+        accepted features. It uses great-circle distance between standardized
+        centers and the intersection over union of their spherical contour
+        areas:
+        </p>
+        <div class="equation">
+            \[
+                \operatorname{IoU}(A,B)=
+                \frac{\operatorname{Area}(A\cap B)}
+                     {\operatorname{Area}(A\cup B)}.
+            \]
+        </div>
+        <p>
+The default inclusive gates are center distance ≤ 100 km and
+        IoU ≥ 0.1, with known, agreeing polarities. The unresolved-polarity
+        option also permits pairs with at least one unknown value. Opposite
+        known polarities are always excluded. Invalid contours have
+        unavailable IoU and cannot match.
+        </p>
+        <p>
+Eligible pairs are sorted by decreasing IoU, then increasing center
+        distance. Greedy assignment uses each detection once within each
+        method pair. A Chelton detection can therefore appear once against
+        Nencioli and once against Halo when all pairs are displayed. This
+        pairwise selection does not establish a consistent three-method group.
+        </p>
+        <p>
+The thresholds are exploratory and update the proposed matches
+        without rerunning detection. Detection IDs are local to their method
+        and date; equal IDs carry no identity information. Same-day matching
+        and temporal tracking answer separate questions.
+        </p>
+    </section>
+
+    <section id="shared-tracking">
+        <h2>4. Shared tracking</h2>
+        <h3>4.1 Common association rules</h3>
+        <p>
+The shared tracker provides a controlled temporal-association
+        experiment: freeze each method's daily detection catalogue, then
+        apply the same polarity, displacement, area-consistency, and assignment
+        rules to each catalogue separately. A trajectory contains detections
+        from one method throughout. The daily detections and their boundaries
+        remain unchanged.
+        </p>
+        <p>
+The primary center policy uses standardized contour centers for
+        every method. A separate native-preferred sensitivity can use
+        Nencioli's original velocity center when available. Halo needs signed
+        vorticity-based polarity annotations: unknown polarity never establishes
+        a temporal identity in this tracker.
+        </p>
+
+        <h3 id="shared-tracking-score">4.2 Eligibility and matching score</h3>
+        <p>
+For an observation on day t and a candidate on day t + 1, require
+        known, equal polarity and great-circle displacement
+        \(d\leq d_{\max}\). With area consistency enabled, both observations
+        must have reliable, positive, finite areas. Their ratio
+        \(r=S_{t+1}/S_t\) must satisfy the symmetric gate
+        </p>
+        <div class="equation">
+            \[
+                \frac{1}{F}\leq r\leq F,
+                \qquad F=2\text{ by default}.
+            \]
+        </div>
+        <p>
+The displacement limit is an explicit experiment parameter. Eligible
+        pairs receive the dimensionless score
+        </p>
+        <div class="equation">
+            \[
+                J=\sqrt{
+                    \left(\frac{d}{s_x}\right)^2+
+                    \left(\frac{\log r}{\log F_s}\right)^2
+                }.
+            \]
+        </div>
+        <p>
+By default, \(s_x=d_{\max}\) and \(F_s=F\). The two score scales
+        can be fixed independently of the eligibility gates so that a gate
+        sensitivity leaves assignment preferences comparable. Removing the
+        area-ratio gate can retain the area term; the displacement-only
+        ablation removes both the area gate and area score, while preserving
+        known equal polarity.
+        </p>
+        <p>
+The shared score uses no detector-specific amplitude or
+        vorticity-magnitude term. Nencioli fallback and unknown boundary
+        areas cannot enter area-consistent matching.
+        </p>
+
+        <h3 id="shared-tracking-assignment">4.3 Assignment and track endings</h3>
+        <p>
+On each date, global one-to-one assignment first maximizes the number
+        of eligible links, then minimizes their total score. A detection can
+        extend at most one track, and a track can acquire at most one
+        observation per date. Unassigned detections start new tracks;
+        unmatched tracks end.
+        </p>
+        <p>
+Only adjacent calendar days are linked. An empty or unavailable
+        day breaks continuity. There is no gap recovery, future look-ahead,
+        trajectory interpolation, splitting, or merging. All resulting
+        segments, including single-day tracks, are retained. Link and daily
+        diagnostics support auditing of rejected candidates and assignment
+        conflicts.
+        </p>
+        <p>
+These common rules help isolate the effect of the detector on
+        observed spans. They are a separate experimental tracking procedure;
+        the current Comparison interface uses the method-specific association
+        rules below.
+        </p>
+    </section>
+
+    <section id="comparison-tracking">
+        <h2>5. Tracking used by the Comparison page</h2>
+        <p>
+Choose Tracking to run the three existing trackers over a shared
+        start date and duration. The default period is 90 days; the comparison
+        accepts 1–365 consecutive days and requires an available source grid
+        for every date. The selected detection settings apply on every day.
+        The comparison retains all track segments from one day, overriding
+        the standalone explorers' minimum-span filters.
+        </p>
+        <div class="table-scroll">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Tracker</th>
+                        <th>Association used in this comparison</th>
+                        <th>Missing detection days</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr><td><a href="{% url 'chelton_methodology' %}#tracking">Chelton</a></td><td>Same polarity; asymmetric search ellipse of 30 km east, 50 km west, and 30 km north/south; amplitude and area ratios each 0.25–2.5; nearest eligible pairs assigned greedily.</td><td>No gap recovery.</td></tr>
+                    <tr><td><a href="{% url 'nencioli_methodology' %}#tracking">Nencioli</a></td><td>Same polarity; nearest eligible centers assigned greedily within 30 km on the next day; native velocity centers preferred.</td><td>One missing detection day can be bridged within a total 45 km displacement, after adjacent-day matches.</td></tr>
+                    <tr><td><a href="{% url 'halo_methodology' %}#tracking">Halo</a></td><td>Preserve signed mean-vorticity sign; daily displacement ≤ 50 km; position/diameter/vorticity score ≤ 2 using scales 25 km, 200 km, and 10⁻⁵ s⁻¹; global one-to-one assignment.</td><td>No gap recovery by default.</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <p>
+Halo excludes detections without a usable signed contour-mean
+        vorticity before tracking. Its current tracking catalogue can retain
+        unknown standardized polarity because association uses the separate
+        signed-vorticity statistic. This differs from the daily comparison's
+        polarity annotation and the shared tracker's known-polarity requirement.
+        </p>
+        <p>
+The results list the association settings used by each tracker.
+        A fully available input period can still contain days with no accepted
+        detections; each tracker handles those according to its gap rules.
+        Observed span includes both endpoint dates:
+        </p>
+        <div class="equation">
+            \[
+                T=(t_{\mathrm{last}}-t_{\mathrm{first}})_{\mathrm{days}}+1.
+            \]
+        </div>
+        <p>
+A four-day span with a recovered missing day has three observations.
+        A track touching the first or last day of the selected period is
+        boundary-censored and may continue beyond the observation window.
+        </p>
+    </section>
+
+    <section id="size-span-distributions">
+        <h2>6. Interpreting the tracking figures</h2>
+        <h3>6.1 Figure 7: size and observed-span distributions</h3>
+        <p>
+The upper panel bins reliable daily radii in 2 km intervals.
+        Each method is normalized by its own total number of reliable,
+        finite, positive radius observations. Longer tracks contribute more
+        observations, so this is an observation-weighted size distribution.
+        </p>
+        <p>
+The lower panel is the empirical upper-tail distribution of
+        observed spans. Every track contributes once, including single-day
+        and boundary-censored tracks:
+        </p>
+        <div class="equation">
+            \[
+                P(T\geq d)=100\,
+                \frac{\#\{\text{tracks with }T\geq d\}}
+                     {\#\{\text{all tracks}\}}.
+            \]
+        </div>
+        <p>
+The percentage axis is logarithmic. The span axis fits the curves
+        above the 0.3% display floor; a display limit does not remove tracks
+        from the denominator. This empirical curve does not correct for
+        censoring and is not an estimate of complete physical lifetimes.
+        </p>
+
+        <h3 id="radius-evolution">6.2 Figure 8: radius evolution</h3>
+        <p>
+Tracks are grouped by observed span into [7, 25), [25, 50),
+        [50, 100), [100, 150), [150, 200), and [200, 250] days. Shared
+        endpoints belong to the next class, except that 250 days is included
+        in the last class. Tracks outside these classes remain in Figure 7.
+        </p>
+        <p>
+Within a class with midpoint \(T_c\), each observation's elapsed
+        calendar age \(a=(t-t_{\mathrm{first}})_{\mathrm{days}}\) is scaled
+        by its track's observed span:
+        </p>
+        <div class="equation">
+            \[
+                x=\frac{a}{T}\,T_c,
+                \qquad b=\lfloor x\rfloor.
+            \]
+        </div>
+        <p>
+Observations are collected into one-day bins on this class-scaled
+        axis and drawn at bin centers. First average reliable radii within
+        each track and bin, then average those track means with equal weight.
+        Radius stays in absolute kilometres; it is not divided by a track's
+        mean or maximum radius. Missing observations are not interpolated.
+        </p>
+        <p>
+By default, a visible bin needs at least 20 contributing tracks.
+        Bins below the selected minimum are left as gaps. Tracks touching
+        either period boundary are excluded from Figure 8 by default;
+        the inclusion control adds them back without changing Figure 7.
+        An absent curve can reflect insufficient contributors or an empty
+        span class.
+        </p>
+    </section>
+
+    <section id="controls-exports">
+        <h2>7. Controls and outputs</h2>
+        <p>
+Start with the same daily input and the default detection settings,
+        inspect differences in accepted boundaries, then vary one setting at
+        a time. Daily results include the combined map, geometric matching,
+        counts and size statistics, and the standardized detection table.
+        </p>
+        <p>
+The daily exports provide all detections, full-run basic statistics,
+        and the currently selected matching pairs as separate CSV files;
+        the combined map is downloadable as an image. Detection-table
+        filters and map visibility do not recompute the full-run statistics.
+        The detection CSV includes boundary provenance, radius reliability,
+        polarity evidence, and native Nencioli centers where available.
+        </p>
+        <p>
+Tracking runs in the background, with progress and a saved run link
+        that can be bookmarked and reopened. Completed daily detections are
+        reused where available. Changing the minimum contributors per age
+        bin or the boundary-track inclusion setting reuses the completed
+        tracking run. Plot toolbars support image export.
+        </p>
+    </section>
+
+    <section id="limitations">
+        <h2>8. Interpretation and limitations</h2>
+        <p>
+A larger detection count, a higher contour overlap, or longer
+        observed tracks does not by itself establish a more accurate method.
+        These regional SLA implementations and their exploratory association
+        settings have different sensitivity to resolution, missing data,
+        preprocessing, and boundary construction.
+        </p>
+        <p>
+Common area and radius definitions harmonize reported geometry;
+        shared temporal rules additionally control association. The current
+        Comparison Tracking mode preserves method-specific association, so
+        its span differences cannot be attributed to detection alone.
+        </p>
+        <p>
+Window boundaries, failed daily detections, and failed associations
+        can truncate tracks. Even tracks contained within the selected period
+        have observed spans rather than proven physical birth-to-decay
+        lifetimes. Inspect contributor counts and parameter sensitivity
+        before interpreting radius growth or differences between methods.
+        </p>
+        <p>
+For each detector's acceptance criteria and reconstruction choices,
+            see the <a href="{% url 'chelton_methodology' %}">Chelton</a>,
+            <a href="{% url 'nencioli_methodology' %}">Nencioli</a>, and
+            <a href="{% url 'halo_methodology' %}">Halo</a> methodology pages.</p>
+        <p><a href="{% url 'comparison' %}">Open the Comparison Explorer →</a></p>
+    </section>
+{% endblock %}

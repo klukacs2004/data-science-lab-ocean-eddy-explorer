@@ -1,0 +1,190 @@
+{% extends "explorer/method_base.html" %}
+{% load static %}
+
+{% block title %}
+    Halo | Ocean Eddy Explorer
+{% endblock %}
+
+{% block brand %}
+    Halo Explorer
+{% endblock %}
+
+{% block page_title %}
+    Investigate Halo eddy detection
+{% endblock %}
+
+{% block page_introduction %}
+    Explore closed height loops supported by rotation-dominated flow. Inspect each stage and the reasons candidates are selected or rejected
+{% endblock %}
+
+{% block extra_css %}
+    <link rel="stylesheet" href="{% static 'explorer/halo.css' %}?v=7">
+{% endblock %}
+
+{% block form_content %}
+    <div class="form-field">
+        {{ form.contour_interval_cm.as_field_group }}
+    </div>
+    <div class="form-field">
+        {{ form.max_diameter_km.as_field_group }}
+    </div>
+    <div class="form-field">
+        {{ form.filter_passes.as_field_group }}
+    </div>
+    <p class="note">Only W is smoothed; SLA is used without additional filtering.</p>
+    <div class="parameter-presets">
+        <button type="button"
+                class="secondary-button"
+                id="paper-preset">Paper settings: 2 cm · 600 km · 2 passes</button>
+    </div>
+    <a href="#paper-comparison"
+       class="sidebar-explanation">How does this compare with the paper?</a>
+{% endblock %}
+
+{% block page_content %}
+    <div class="halo-results">
+        <nav class="result-nav" aria-label="Analysis sections">
+            <a href="#overview">Overview</a>
+            <a href="{% url 'halo_tracker' %}">Track eddies across days →</a>
+            {% if diagnostic_summary %}
+                <a href="#accepted">Accepted boundaries</a>
+                <a href="#processing">Processing</a>
+                <a href="#diagnostics">Diagnostics</a>
+                <a href="#inspector">Candidate inspector</a>
+            {% endif %}
+            <a href="#paper-comparison">Compare with the paper</a>
+        </nav>
+        {% if diagnostic_summary %}
+            <section class="stats" aria-label="Detection summary">
+                <div class="stat">
+                    <span>Candidates</span>
+                    <strong>
+                        {{ diagnostic_summary.total }}
+                    </strong>
+                </div>
+                <div class="stat accepted">
+                    <span>Accepted boundaries</span>
+                    <strong>
+                        {{ diagnostic_summary.accepted }}
+                    </strong>
+                </div>
+                <div class="stat rejected">
+                    <span>Rejected loops</span>
+                    <strong>
+                        {{ diagnostic_summary.rejected }}
+                    </strong>
+                </div>
+            </section>
+            <section class="panel" id="overview" aria-labelledby="overview-title">
+                <div class="panel-head">
+                    <h2 id="overview-title">Detection overview</h2>
+                    <span class="eyebrow">SLA geometry</span>
+                </div>
+                <p>{{ run_settings.day|date:"Y-m-d" }} · contour interval: {{ run_settings.contour_interval_cm }} cm, max diameter: {{ run_settings.max_diameter_km }} km · SLA shown for context.</p>
+                {% if not diagnostic_summary.accepted %}
+                    <p class="explanation">No candidates pass all checks with these settings. Inspect the rejection reasons below before changing parameters.</p>
+                {% endif %}
+                <div class="interactive-map">
+                    {{ plot_image_html|safe }}
+                </div>
+                <p>The background shows SLA, with dark shading marking negative Okubo–Weiss regions. Green contours are accepted, gray contours are rejected, and orange highlights the selected candidate. Only the outermost valid contour is retained per core. Click a marker to inspect; enable rejected candidates in the legend.</p>
+                <a href="data:image/png;base64,{{ plot_image }}"
+                   download="halo_detection_{{ run_settings.day|date:'Y-m-d' }}.png">Download detection map</a>
+            </section>
+            <section class="panel" id="accepted" aria-labelledby="accepted-title">
+                <div class="panel-head">
+                    <h2 id="accepted-title">Accepted boundaries</h2>
+                    <span class="eyebrow">{{ diagnostic_summary.accepted }} results</span>
+                </div>
+                <p>Outermost valid SLA contours enclosing a single negative-W core representative. Diameters represent maximum distances between contour points.</p>
+                <div class="table-scroll">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Candidate</th>
+                                <th>SLA level [cm]</th>
+                                <th>Diameter [km]</th>
+                                <th>Core ID</th>
+                                <th>Area [grid cells]</th>
+                                <th>Investigate</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for eddy in accepted_eddies %}
+                                <tr>
+                                    <td>{{ eddy.id }}</td>
+                                    <td>{{ eddy.level_cm|floatformat:2 }}</td>
+                                    <td>{{ eddy.diameter_km|floatformat:2 }}</td>
+                                    <td>{{ eddy.region_ids|join:", " }}</td>
+                                    <td>{{ eddy.area_cells|floatformat:1 }}</td>
+                                    <td>
+                                        <button type="submit"
+                                                form="analysis-form"
+                                                name="inspect_candidate"
+                                                value="{{ eddy.id }}"
+                                                class="table-button">
+                                            Inspect {{ eddy.id }}
+                                        </button>
+                                    </td>
+                                </tr>
+                            {% empty %}
+                                <tr>
+                                    <td colspan="6" class="empty-table-cell">
+                                        No contours passed the detection criteria.
+                                        Inspect rejected candidates below.
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+            <h2 class="section-heading" id="processing">Inspect the processing steps</h2>
+            <p class="note">{{ core_count }} eight-connected negative-W regions. Candidate counts include only closed loops within the diameter cap; open and oversized contours are excluded before diagnostics.</p>
+            <details>
+                <summary>Step 1 · Compute and smooth Okubo–Weiss W</summary>
+                <p>W combines normal strain, shear strain, and relative vorticity from geostrophic velocities. Negative W indicates rotation-dominated flow. Apply {{ run_settings.filter_passes }} Hanning passes to W, preserving missing cells. SLA is not smoothed or high-pass filtered.</p>
+                <img src="data:image/png;base64,{{ ow_image }}"
+                     alt="Raw and smoothed Okubo–Weiss W on a shared colour scale">
+            </details>
+            <details>
+                <summary>Step 2 · Identify rotating regions</summary>
+                <p>Eight-neighbour connectivity groups W &lt; 0 pixels. Crosses mark each region's minimum-W representative; labels are core IDs, not candidate IDs.</p>
+                <img src="data:image/png;base64,{{ regions_image }}"
+                     alt="Negative-W connected regions with core IDs and minimum-W representatives">
+            </details>
+            <details>
+                <summary>Step 3 · Combine closed SLA loops with rotating cores</summary>
+                <p>Trace loops at {{ run_settings.contour_interval_cm }} cm intervals and keep closed contours with maximum pair distance at most {{ run_settings.max_diameter_km }} km. Require finite interior data and exactly one enclosed core representative, then retain the largest eligible loop for that core.</p>
+                <img src="data:image/png;base64,{{ diagnostics_plot }}"
+                     alt="Height contours with accepted candidate IDs and rejected loops">
+                <a href="data:image/png;base64,{{ diagnostics_plot }}"
+                   download="halo_diagnostics_{{ run_settings.day|date:'Y-m-d' }}.png">Download diagnostic map</a>
+            </details>
+            {% include "explorer/halo/diagnostics.html" %}
+            {% include "explorer/halo/inspector.html" %}
+            {{ candidate_export|json_script:"halo-candidates" }}
+        {% else %}
+            <section class="empty" id="overview">
+                <span class="eyebrow">Start exploring</span>
+                <h2>From velocity vectors and sea-level anomalies to ocean eddies</h2>
+                <p>Select an available date and run the paper defaults. Change one parameter to compare contour resolution, size limits, or W smoothing.</p>
+            </section>
+        {% endif %}
+        {% include "explorer/halo/paper_comparison.html" %}
+    </div>
+{% endblock %}
+
+{% block footer %}
+    Halo et al. (2014), section 2.3 ·
+    <a href="https://doi.org/10.1016/j.dsr2.2013.10.015">Paper</a>
+{% endblock %}
+
+{% block extra_js %}
+    <span id="halo-page-state"
+          hidden
+          data-dates-url="{% url 'available_dates' %}"
+          data-date="{{ run_settings.day|date:'Y-m-d' }}"
+          data-selected="{% if selected_candidate %}true{% endif %}"></span>
+    <script src="{% static 'explorer/halo.js' %}" defer></script>
+{% endblock %}

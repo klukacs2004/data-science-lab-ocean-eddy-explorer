@@ -1,0 +1,32 @@
+# Local Python environment and generated caches
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Large source datasets and reproducible detection checkpoints
+/data/
+/artifacts/**/*.pickle
+
+# Machine-local credentials and agent state
+.aws/
+.codex/
+.agents/
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Per-installation state and portable distribution archives.
+.runtime/
+staticfiles/
+/dist/
+
+# Local Django runtime database
+*.sqlite3
+*.sqlite3-journal
+
+# Persistent local comparison jobs and daily detection cache
+/artifacts/comparison_work/

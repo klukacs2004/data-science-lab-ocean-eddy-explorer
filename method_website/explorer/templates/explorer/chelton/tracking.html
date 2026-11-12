@@ -1,0 +1,39 @@
+{% extends "explorer/nencioli/tracking.html" %}
+{% block title %}Chelton Eddy Tracking Explorer{% endblock %}
+{% block brand %}Chelton Tracking{% endblock %}
+{% block page_title %}Track Chelton eddies across days{% endblock %}
+{% block page_introduction %}Follow standardized SLA contour centers through consecutive daily fields. Inspect same-polarity trajectories matched by search distance, amplitude, and area.{% endblock %}
+{% block form_content %}
+    <div class="form-field">{{ form.duration_days.as_field_group }}</div>
+    <div class="form-field">{{ form.filter_mode.as_field_group }}</div>
+    <div class="form-field" id="tracking-sigma-control">{{ form.sigma_cells.as_field_group }}</div>
+    <p class="note">Each day runs the full Chelton threshold scan: both polarities, −100 to +100 cm in 1 cm steps. Background removal uses the same options as the detection explorer.</p>
+    <details open>
+        <summary>Search ellipse</summary>
+        <div class="form-field">{{ form.east_km.as_field_group }}</div>
+        <div class="form-field">{{ form.west_km.as_field_group }}</div>
+        <div class="form-field">{{ form.north_south_km.as_field_group }}</div>
+        <p class="note">Semi-axes of the adjacent-day search ellipse, measured from the last observed center. Experimental OSU defaults: 30 km east, 50 km west, and 30 km north–south. This favors westward candidates without imposing westward-only motion.</p>
+    </details>
+    <details open>
+        <summary>Amplitude and area compatibility</summary>
+        <div class="form-field">{{ form.min_amplitude_ratio.as_field_group }}</div>
+        <div class="form-field">{{ form.max_amplitude_ratio.as_field_group }}</div>
+        <div class="form-field">{{ form.min_area_ratio.as_field_group }}</div>
+        <div class="form-field">{{ form.max_area_ratio.as_field_group }}</div>
+        <p class="note">Ratios are today's measurement divided by the previous observation's measurement. Both endpoints are inclusive; missing or nonpositive amplitudes and areas cannot match.</p>
+    </details>
+    <div class="form-field">{{ form.min_lifetime_days.as_field_group }}</div>
+    <p class="note">Processing is synchronous, up to 90 days. Full daily scans may take a while. No missing-day recovery.</p>
+{% endblock %}
+{% block tracking_method %}
+    <section class="panel" id="tracking-method">
+        <h2>How Chelton tracking works</h2>
+        <p>Each available daily SLA grid is optionally high-pass filtered, scanned by the existing Chelton detector, and standardized before the existing Chelton tracker is called. Centers are spherical means of contour vertices; radii are derived from spherical contour areas.</p>
+        <p>Candidates must have the same polarity, lie inside the configured east/west-asymmetric search ellipse, and satisfy both amplitude and area ratio intervals relative to the last observation. Eligible pairs across all active tracks are sorted by increasing great-circle distance and assigned greedily, with each track and detection used at most once per day. Exact-distance ties use track ID, then the detection index in that day's input list.</p>
+        <p>Only adjacent calendar days can match. Unmatched tracks close, and unmatched detections start new tracks. A missing or empty day breaks a trajectory. The minimum lifetime is applied after association; lifetime is the inclusive first-to-last calendar span and equals the observation count for these uninterrupted tracks.</p>
+        <p>Statistics describe all accepted tracks in the selected interval; selecting one only changes the visualization. Track IDs are run-local and may have gaps after lifetime filtering.</p>
+        <p class="note">The 30 / 50 / 30 km east / west / north–south defaults are experimental daily OSU settings, not published search distances. The default 28-day retention adapts the paper's four-week minimum to the inclusive daily lifetime convention; it does not reproduce the paper's weekly sampling or stricter 16-week analysis population. No Rossby-speed-dependent western limit or trajectory smoothing is applied. Endpoint dates are limited by the chosen interval; geometric association does not independently validate eddy identity.</p>
+    </section>
+{% endblock %}
+{% block footer %}Daily Chelton detections · Elliptical search · Amplitude and area compatibility{% endblock %}

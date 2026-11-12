@@ -1,0 +1,97 @@
+.chelton-results section,
+.chelton-results details {
+    scroll-margin-top: 20px;
+}
+
+.result-nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 20px;
+    font-size: 13px;
+    margin-bottom: 20px;
+}
+
+.table-button {
+    padding: 5px 9px;
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+.explanation {
+    padding: 14px 18px;
+    background: var(--control);
+    border-left: 3px solid #11879a;
+}
+
+.chelton-results .explanation {
+    color: var(--ink);
+}
+
+.diagnostic-controls,
+.inspector-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    gap: 14px;
+    margin: 18px 0;
+}
+
+.diagnostic-controls select {
+    max-width: 280px;
+}
+
+.candidate-scroll {
+    max-height: 460px;
+}
+
+.candidate-scroll thead {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+.paper-table th {
+    min-width: 145px;
+}
+
+.paper-table td {
+    min-width: 230px;
+}
+
+.download-links {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: 12px;
+}
+
+.sidebar-explanation {
+    font-size: 12px;
+}
+
+@media (max-width: 680px) {
+    .chelton-results .stats {
+        grid-template-columns: 1fr;
+    }
+
+    .chelton-results .stat {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    .chelton-results .stat strong {
+        margin-top: 0;
+    }
+
+    .diagnostic-controls>div,
+    .diagnostic-controls select {
+        width: 100%;
+        max-width: 100%;
+    }
+
+    .chelton-results .panel-head {
+        flex-wrap: wrap;
+    }
+}

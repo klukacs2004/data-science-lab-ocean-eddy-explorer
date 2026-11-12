@@ -1,0 +1,50 @@
+<section class="panel" id="inspector" aria-labelledby="inspector-title">
+    <div class="panel-head">
+        <h2 id="inspector-title">Inspect a candidate</h2>
+        <span class="eyebrow">Trace each check</span>
+    </div>
+    <p>Click a map marker or table button, or enter an ID. IDs are specific to the current date, filter, and detection settings.</p>
+    <div class="inspector-controls">
+        <div>
+            {{ form.candidate_id.as_field_group }}
+        </div>
+        <button type="submit" form="analysis-form">Inspect candidate</button>
+    </div>
+    {% if selected_candidate %}
+        <h3>Candidate {{ selected_candidate.id }} · {{ selected_candidate.status|capfirst }}</h3>
+        <p class="explanation">{{ selected_candidate.explanation }}</p>
+        <p>{{ selected_candidate.polarity_label }} · Threshold {{ selected_candidate.threshold_cm|floatformat:1 }} cm · Pixel centroid {{ selected_candidate.latitude|floatformat:3 }}°N, {{ selected_candidate.longitude|floatformat:3 }}°E</p>
+        <div class="table-scroll">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Check</th>
+                        <th>Requirement</th>
+                        <th>Measured value</th>
+                        <th>Outcome</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for check in selected_candidate.check_rows %}
+                        <tr>
+                            <td>{{ check.label }}</td>
+                            <td>{{ check.requirement }}</td>
+                            <td>{{ check.value|default_if_none:"—" }}</td>
+                            <td>{{ check.outcome }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <img src="data:image/png;base64,{{ candidate_image }}"
+             alt="Candidate {{ selected_candidate.id }}: SSH region with local extrema and pixel-value distribution showing the perimeter mean and extremum">
+        <p>The close-up outlines the threshold region. The distribution illustrates the amplitude definition A = |h_extreme − mean(h_perimeter)|. It may show this geometry for an early rejection even when the amplitude check was not reached; the table records which checks actually ran.</p>
+        {% if selected_candidate.boundary_mean_m is not None %}
+            <p>Perimeter mean: {{ selected_candidate.boundary_mean_m|floatformat:4 }} m · Extreme SSH: {{ selected_candidate.extremum_m|floatformat:4 }} m · Amplitude: {{ selected_candidate.amplitude_cm|floatformat:2 }} cm.</p>
+        {% endif %}
+        <a href="data:image/png;base64,{{ candidate_image }}"
+           download="chelton_candidate_{{ selected_candidate.id }}_{{ run_settings.day|date:'Y-m-d' }}.png">Download candidate investigation</a>
+    {% else %}
+        <p>Choose a candidate to inspect its region, interior extrema, measured values, and first failed check. Inspection also works across the full threshold scan.</p>
+    {% endif %}
+</section>

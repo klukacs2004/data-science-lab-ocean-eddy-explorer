@@ -1,0 +1,323 @@
+{% extends "explorer/method_base.html" %}
+{% load static %}
+
+{% block title %}
+    Chelton Eddy Explorer
+{% endblock %}
+
+{% block brand %}
+    Chelton Explorer
+{% endblock %}
+
+{% block extra_css %}
+    <link rel="stylesheet" href="{% static 'explorer/chelton.css' %}?v=7">
+{% endblock %}
+
+{% block form_content %}
+    <div class="form-field">
+        {{ form.detection_mode.as_field_group }}
+    </div>
+    <div class="form-field">
+        {{ form.filter_mode.as_field_group }}
+    </div>
+    <div class="form-field" id="sigma-control">
+        {{ form.sigma_cells.as_field_group }}
+    </div>
+    <div class="form-field single-control">
+        {{ form.threshold_cm.as_field_group }}
+    </div>
+    <div class="form-field single-control">
+        {{ form.polarity.as_field_group }}
+    </div>
+    <p class="note">The full scan tests both polarities at 1 cm intervals from −100 to +100 cm. A single threshold is an exploratory view of one scan level.</p>
+    <a href="#paper-comparison"
+       class="sidebar-explanation">How does this compare with the paper?</a>
+{% endblock %}
+
+{% block page_title %}
+    Investigate Chelton eddy detection
+{% endblock %}
+
+{% block page_introduction %}
+    Explore SSH patches from threshold selection to accepted boundaries. Inspect the first failed criterion, examine amplitude and size, and compare this implementation with Chelton et al. (2011).
+{% endblock %}
+
+{% block page_content %}
+    <div class="chelton-results">
+        <nav class="result-nav" aria-label="Analysis sections">
+            <a href="#overview">Overview</a>
+            <a href="{% url 'chelton_tracker' %}">Track eddies across days →</a>
+            {% if diagnostic_summary %}
+                <a href="#accepted">Accepted patches</a>
+                <a href="#processing">Processing</a>
+                <a href="#diagnostics">Diagnostics</a>
+                <a href="#inspector">Candidate inspector</a>
+            {% endif %}
+            <a href="#paper-comparison">Compare with the paper</a>
+        </nav>
+        {% if diagnostic_summary %}
+            <section class="stats" aria-label="Detection summary">
+                <div class="stat">
+                    <span>{% if run_settings.mode == "scan" %}Candidates across scan levels{% else %}Threshold candidates{% endif %}</span>
+                    <strong>
+                        {{ diagnostic_summary.total }}
+                    </strong>
+                </div>
+                <div class="stat accepted">
+                    <span>Accepted patches</span>
+                    <strong>
+                        {{ diagnostic_summary.accepted }}
+                    </strong>
+                </div>
+                <div class="stat rejected">
+                    <span>Rejected candidates</span>
+                    <strong>
+                        {{ diagnostic_summary.rejected }}
+                    </strong>
+                </div>
+            </section>
+            <section class="panel" id="overview" aria-labelledby="overview-title">
+                <div class="panel-head">
+                    <h2 id="overview-title">Detection overview</h2>
+                    <span class="eyebrow">SLA geometry</span>
+                </div>
+                <p>{{ run_settings.day|date:"Y-m-d" }} · {{ filtering.label }} · {% if run_settings.mode == "scan" %}Both polarities · 1 cm scan{% else %}{{ run_settings.polarity|capfirst }} · {{ run_settings.threshold_cm }} cm{% endif %}</p>
+                {% if not diagnostic_summary.accepted %}
+                    <p class="explanation">No patches pass all checks with these settings. Inspect the rejection reasons below before changing parameters.</p>
+                {% endif %}
+                <div class="interactive-map">
+                    {{ plot_image_html|safe }}
+                </div>
+                <p>Original SLA is the map background; boundaries are detected on the processed field. Click a candidate marker to inspect. Rejected candidates can be enabled in the legend.</p>
+                <div class="download-links">
+                    <a href="data:image/png;base64,{{ plot_image }}"
+                       download="chelton_detection_{{ run_settings.day|date:'Y-m-d' }}.png">Download detection map</a>
+
+                </div>
+            </section>
+            <section class="panel" id="accepted" aria-labelledby="accepted-title">
+                <div class="panel-head">
+                    <h2 id="accepted-title">Accepted patches</h2>
+                    <span class="eyebrow">{{ diagnostic_summary.accepted }} results</span>
+                </div>
+                <p>Candidate IDs match the map and diagnostics, including in a full scan. Area-equivalent radius is √(area/π); maximum pair distance is a separate compactness measure.</p>
+                <div class="table-scroll">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Polarity</th>
+                                <th>Threshold [cm]</th>
+                                <th>Pixels</th>
+                                <th>Amplitude [cm]</th>
+                                <th>Max. pair distance [km]</th>
+                                <th>Area radius [km]</th>
+                                <th>Inspect</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for patch in accepted_patches %}
+                                <tr>
+                                    <td>{{ patch.id }}</td>
+                                    <td>{{ patch.polarity|capfirst }}</td>
+                                    <td>{{ patch.threshold_cm|floatformat:1 }}</td>
+                                    <td>{{ patch.size }}</td>
+                                    <td>{{ patch.amplitude_cm|floatformat:2 }}</td>
+                                    <td>{{ patch.diameter_km|floatformat:1 }}</td>
+                                    <td>{{ patch.effective_radius_km|floatformat:1 }}</td>
+                                    <td>
+                                        <button class="table-button"
+                                                type="submit"
+                                                form="analysis-form"
+                                                name="inspect_candidate"
+                                                value="{{ patch.id }}">Inspect {{ patch.id }}</button>
+                                    </td>
+                                </tr>
+                            {% empty %}
+                                <tr>
+                                    <td colspan="8" class="empty-table-cell">No accepted patches. Rejected candidates remain available for investigation.</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+            <h2 class="section-heading" id="processing">Inspect the processing steps</h2>
+            <details>
+                <summary>Step 1 · Background removal</summary>
+                <p>{{ filtering.label }}. {% if filtering.sigma %}σ is {{ filtering.sigma_lon|floatformat:2 }} cells in longitude and {{ filtering.sigma_lat|floatformat:2 }} cells in latitude. The ideal infinite-grid high-pass half-power wavelengths are approximately {{ filtering.cutoff_lon|floatformat:2 }}° × {{ filtering.cutoff_lat|floatformat:2 }}°.{% else %}The input field is used without additional filtering.{% endif %}</p>
+                <p>All panels share a colour scale. Missing values are preserved; Gaussian smoothing is normalized over valid pixels. Near coasts and map edges, the response differs from the ideal filter.</p>
+                <img src="data:image/png;base64,{{ filtering_image }}"
+                     alt="Original SLA, estimated background, and processed SLA on a common colour scale">
+            </details>
+            {% if threshold_image %}
+                <details>
+                    <summary>Step 2 · Threshold and connectivity</summary>
+                    <p>Maxima use SLA above the selected threshold; minima use SLA below it, independently of the threshold's sign. Connected pixels share a north, south, east, or west edge.</p>
+                    <img src="data:image/png;base64,{{ threshold_image }}"
+                         alt="Threshold-selected pixels compared with accepted candidate regions">
+                </details>
+            {% endif %}
+            {% if run_settings.mode == "scan" %}
+                <details>
+                    <summary>Step 2 · Scan levels and pixel availability</summary>
+                    <p>Maxima are scanned upwards from −100 cm; minima downwards from +100 cm, each with its own availability mask. Only interior pixels of accepted patches are retired. Rows below show levels that produced candidates; repeated appearances at different levels are separate candidate decisions.</p>
+                    <img src="data:image/png;base64,{{ scan_image }}"
+                         alt="Candidate and accepted counts versus scan threshold, shown separately for maxima and minima">
+                    <div class="table-scroll candidate-scroll">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Polarity</th>
+                                    <th>Threshold [cm]</th>
+                                    <th>Candidates</th>
+                                    <th>Accepted</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for row in scan_rows %}
+                                    <tr>
+                                        <td>{{ row.polarity|capfirst }}</td>
+                                        <td>{{ row.threshold_cm }}</td>
+                                        <td>{{ row.candidates }}</td>
+                                        <td>{{ row.accepted }}</td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </details>
+            {% endif %}
+            <details id="diagnostics" open>
+                <summary>Step 3 · Candidate diagnostics</summary>
+                <p>Each candidate is assigned its first failed check; later checks are not evaluated. Data-boundary and missing-data guards precede the paper's size, topology, interior-extremum, amplitude, and compactness checks.</p>
+                <div class="table-scroll">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>First failed check</th>
+                                <th>Candidates</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in diagnostic_summary.reasons %}
+                                <tr>
+                                    <td>{{ item.reason }}</td>
+                                    <td>{{ item.count }}</td>
+                                </tr>
+                            {% empty %}
+                                <tr>
+                                    <td colspan="2"
+                                        class="empty-table-cell">No rejected candidates.</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <div class="diagnostic-controls">
+                    <div>
+                        <label for="candidate-filter">Status</label>
+                        <select id="candidate-filter">
+                            <option value="all">All candidates</option>
+                            <option value="accepted">Accepted</option>
+                            <option value="rejected">Rejected</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="polarity-filter">Polarity</label>
+                        <select id="polarity-filter">
+                            <option value="all">Both polarities</option>
+                            <option value="maximum">Maximum</option>
+                            <option value="minimum">Minimum</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="reason-filter">Decision</label>
+                        <select id="reason-filter">
+                            <option value="all">All decisions</option>
+                            <option value="All implemented criteria passed">All checks passed</option>
+                            {% for item in diagnostic_summary.reasons %}
+                                <option value="{{ item.reason }}">{{ item.reason }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <button type="button"
+                            id="download-candidates"
+                            class="secondary-button">Download candidate CSV</button>
+                </div>
+                <p id="candidate-count" class="note" role="status" aria-live="polite">
+                </p>
+                <div class="table-scroll candidate-scroll">
+                    <table id="candidate-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Status</th>
+                                <th>Decision</th>
+                                <th>Polarity / threshold</th>
+                                <th>Pixels</th>
+                                <th>Amplitude [cm]</th>
+                                <th>Max. pair distance [km]</th>
+                                <th>Inspect</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for candidate in diagnostics %}
+                                <tr data-status="{{ candidate.status }}"
+                                    data-polarity="{{ candidate.polarity }}"
+                                    data-reason="{{ candidate.reason }}">
+                                    <td>{{ candidate.id }}</td>
+                                    <td><span class="badge {{ candidate.status }}">{{ candidate.status|capfirst }}</span></td>
+                                    <td title="{{ candidate.explanation }}">{{ candidate.reason }}</td>
+                                    <td>{{ candidate.polarity|capfirst }} / {{ candidate.threshold_cm|floatformat:1 }} cm</td>
+                                    <td>{{ candidate.size }}</td>
+                                    <td>{% if candidate.amplitude_cm is not None %}{{ candidate.amplitude_cm|floatformat:2 }}{% else %}—{% endif %}</td>
+                                    <td>{% if candidate.diameter_km is not None %}{{ candidate.diameter_km|floatformat:1 }}{% else %}—{% endif %}</td>
+                                    <td>
+                                        <button class="table-button"
+                                                type="submit"
+                                                form="analysis-form"
+                                                name="inspect_candidate"
+                                                value="{{ candidate.id }}">Inspect {{ candidate.id }}</button>
+                                    </td>
+                                </tr>
+                            {% empty %}
+                                <tr>
+                                    <td colspan="8"
+                                        class="empty-table-cell">No connected threshold candidates were found.</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <p id="filter-empty" hidden>No candidates match these filters.</p>
+                <img src="data:image/png;base64,{{ diagnostics_plot }}"
+                     alt="Processed SLA with candidate outlines and IDs; full scans show accepted patches to avoid overlapping hundreds of rejected contours">
+                <a href="data:image/png;base64,{{ diagnostics_plot }}"
+                   download="chelton_diagnostics_{{ run_settings.day|date:'Y-m-d' }}.png">Download diagnostic map</a>
+            </details>
+            {% include "explorer/chelton/inspector.html" %}
+            {{ candidate_export|json_script:"chelton-candidate-data" }}
+        {% else %}
+            <section class="empty" id="overview">
+                <span class="eyebrow">Start exploring</span>
+                <h2>From sea-level anomalies to ocean eddies</h2>
+                <p>Select a date and processing settings. Run one threshold for a focused inspection, or scan both polarities using the paper's 1 cm steps.</p>
+            </section>
+        {% endif %}
+        {% include "explorer/chelton/paper_comparison.html" %}
+    </div>
+{% endblock %}
+
+{% block footer %}
+    Chelton-based SSH geometry · Appendix B.2–B.3 · Single-day detection and transparent candidate decisions
+{% endblock %}
+
+{% block extra_js %}
+    <span id="chelton-page-state"
+          hidden
+          data-dates-url="{% url 'available_dates' %}"
+          data-date="{{ run_settings.day|date:'Y-m-d' }}"
+          data-selected="{% if selected_candidate %}true{% endif %}"></span>
+    <script src="{% static 'explorer/chelton.js' %}" defer></script>
+{% endblock %}

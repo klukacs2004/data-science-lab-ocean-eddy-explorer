@@ -1,0 +1,23 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>
+            {% block title %}
+                Ocean Eddy Explorer
+            {% endblock %}
+        </title>
+        <link rel="stylesheet" href="{% static 'explorer/style.css' %}?v=9">
+        {% block extra_css %}
+        {% endblock %}
+    </head>
+    <body>
+        {% block content %}
+        {% endblock %}
+        <script src="{% static 'explorer/links.js' %}" defer></script>
+        {% block extra_js %}
+        {% endblock %}
+    </body>
+</html>

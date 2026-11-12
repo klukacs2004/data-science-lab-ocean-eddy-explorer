@@ -1,0 +1,87 @@
+<section class="panel" id="paper-comparison" aria-labelledby="paper-title">
+    <div class="panel-head">
+        <h2 id="paper-title">Why can results differ from the paper?</h2>
+        <span class="eyebrow">Method and context</span>
+    </div>
+    <p>This is a Nencioli-based implementation, compared against section 3a and the appendix of <a href="https://doi.org/10.1175/2009JTECHO725.1"
+                                                                                                   target="_blank"
+                                                                                                   rel="noopener">Nencioli et al. (2010)</a>. A different detection count is not, by itself, evidence of an implementation error.</p>
+    <p><a href="{% url 'nencioli_methodology' %}">Read the equations and detailed Nencioli methodology</a>.</p>
+    {% if grid_comparison %}
+        <h3>Same date, different search radii</h3>
+        <div class="table-scroll">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Configuration on {{ run_settings.day|date:"Y-m-d" }}</th>
+                        <th>Centers</th>
+                        <th>Accepted boundaries</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Your settings: a={{ run_settings.a }}, b={{ run_settings.b }}</td>
+                        <td>{{ diagnostic_summary.centers }}</td>
+                        <td>{{ diagnostic_summary.accepted }}</td>
+                    </tr>
+                    <tr>
+                        <td>Paper settings applied to this dataset: a=4, b=3</td>
+                        <td>{{ paper_settings.centers }}</td>
+                        <td>{{ paper_settings.boundaries }}</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <p>Both rows are computed here on the selected day's OSU data. They are not the paper's published detection counts.</p>
+        <p class="explanation">At the domain's mean latitude, a grid step is approximately {{ grid_comparison.dx_km|floatformat:1 }} km east–west and {{ grid_comparison.dy_km|floatformat:1 }} km north–south. Your a={{ run_settings.a }} spans about {{ grid_comparison.a_x_km|floatformat:1 }} / {{ grid_comparison.a_y_km|floatformat:1 }} km along those axes; b={{ run_settings.b }} gives a minimum-search half-width of about {{ grid_comparison.b_x_km|floatformat:1 }} / {{ grid_comparison.b_y_km|floatformat:1 }} km.</p>
+    {% endif %}
+    <div class="table-scroll">
+        <table class="paper-table">
+            <thead>
+                <tr>
+                    <th>Aspect</th>
+                    <th>Paper</th>
+                    <th>This explorer and its effect</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <th>Input and resolution</th>
+                    <td>The model example uses a 1 km grid; HF radar is also examined.</td>
+                    <td>Daily OSU geostrophic velocities on a 0.25° grid. Different flow, dates, and physical neighborhood sizes require new parameter assessment.</td>
+                </tr>
+                <tr>
+                    <th>Four center constraints</th>
+                    <td>EW and NS reversal/growth, a stable local speed minimum, and consistent circulation.</td>
+                    <td>Same sequence, with minimum windows at ±b and a rotation perimeter at ±(a−1). Perimeter turning must complete a full revolution. Missing vectors cannot demonstrate circulation.</td>
+                </tr>
+                <tr>
+                    <th>Streamfunction</th>
+                    <td>Average of two trapezoidal integration paths, appendix A1–A4.</td>
+                    <td>Same integration principle, using geographic grid distances. A local finite region is expanded or reduced as described in the paper.</td>
+                </tr>
+                <tr>
+                    <th>Outermost growing contour</th>
+                    <td>Outermost closed contour with increasing radial speed at its four extrema.</td>
+                    <td>Fractional polygon area ranks nested contours. Speed is sampled half a grid step inside and outside each extremum. This stencil is a numerical choice; its width is not specified in the paper.</td>
+                </tr>
+                <tr>
+                    <th>Contour resolution</th>
+                    <td>No contour-level count is prescribed.</td>
+                    <td>100 levels sample the local streamfunction. Small contours can be sensitive to sampling; this is separate from the method's a and b parameters.</td>
+                </tr>
+                <tr>
+                    <th>Circular boundaries</th>
+                    <td>If no closed contour exists, estimate a circle of radius a−1 grid cells (p. 572).</td>
+                    <td>Preserved and labelled as an estimated circle. A contour that fails the growth test is rejected rather than replaced with a circle.</td>
+                </tr>
+                <tr>
+                    <th>Tracking and validation</th>
+                    <td>Multi-day tracking, lifetime filtering, and comparison with manually identified eddies.</td>
+                    <td>This page investigates a single day, without tracking or lifetime filtering. It cannot reproduce the paper's success/excess rates without independent labels.</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    <p>Use a sweep to assess sensitivity, then inspect the velocity geometry. A smaller a can recover smaller features, but features with radii of only one or two grid cells remain poorly resolved. The largest detection count is not a validated optimum.</p>
+</section>

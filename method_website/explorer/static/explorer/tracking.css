@@ -1,0 +1,35 @@
+.tracking-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: center;
+    margin: 16px 0;
+}
+
+.tracking-controls select {
+    width: auto;
+    min-width: 180px;
+}
+
+.tracking-stats {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+#track-table tr.selected td {
+    background: var(--selection);
+}
+
+#track-table button {
+    white-space: nowrap;
+}
+
+#analysis-form[aria-busy="true"] button {
+    opacity: .6;
+    cursor: wait;
+}
+
+@media (max-width: 680px) {
+    .tracking-controls select {
+        width: 100%;
+    }
+}

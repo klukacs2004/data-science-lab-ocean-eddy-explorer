@@ -1,0 +1,148 @@
+{
+  "start": "1993-01-01",
+  "end": "2012-12-31",
+  "tracking": {
+    "Chelton": {
+      "east_km": 30.0,
+      "west_km": 50.0,
+      "north_south_km": 30.0,
+      "min_amplitude_ratio": 0.25,
+      "max_amplitude_ratio": 2.5,
+      "min_area_ratio": 0.25,
+      "max_area_ratio": 2.5,
+      "min_lifetime_days": 1
+    },
+    "Nencioli": {
+      "daily_radius_km": 40.0,
+      "gap_radius_km": 45.0,
+      "min_lifetime_days": 1,
+      "max_gap_days": 0,
+      "assignment_method": "greedy"
+    },
+    "Halo": {
+      "vorticity_scale_s": 1e-05,
+      "max_displacement_km": 50.0,
+      "position_scale_km": 25.0,
+      "diameter_scale_km": 200.0,
+      "max_generalized_distance": 2.0,
+      "min_lifetime_days": 1,
+      "assignment_method": "global",
+      "max_gap_days": 0
+    }
+  },
+  "detection": {
+    "Chelton": "scan_thresholds, no additional high-pass filter",
+    "Nencioli": {
+      "a": 2,
+      "b": 2
+    },
+    "Halo": {
+      "contour_interval_m": 0.02,
+      "max_diameter_km": 600.0,
+      "filter_passes": 2
+    }
+  },
+  "halo_vorticity_exclusions": 0,
+  "inputs": [
+    {
+      "path": "data/osu_daily_sla_geovel_1993_v2.nc",
+      "bytes": 27472964,
+      "mtime_ns": 1452640595000000000
+    },
+    {
+      "path": "data/osu_daily_sla_geovel_1994_v2.nc",
+      "bytes": 27472964,
+      "mtime_ns": 1452640595000000000
+    },
+    {
+      "path": "data/osu_daily_sla_geovel_1995_v2.nc",
+      "bytes": 27472964,
+      "mtime_ns": 1452640595000000000
+    },
+    {
+      "path": "data/osu_daily_sla_geovel_1996_v2.nc",
+      "bytes": 27548216,
+      "mtime_ns": 1452640596000000000
+    },
+    {
+      "path": "data/osu_daily_sla_geovel_1997_v2.nc",
+      "bytes": 27472964,
+      "mtime_ns": 1452640596000000000
+    },
+    {
+      "path": "data/osu_daily_sla_geovel_1998_v2.nc",
+      "bytes": 27472964,
+      "mtime_ns": 1452640596000000000
+    },
+    {
+      "path": "data/osu_daily_sla_geovel_1999_v2.nc",
+      "bytes": 27472964,
+      "mtime_ns": 1452640596000000000
+    },
+    {
+      "path": "data/osu_daily_sla_geovel_2000_v2.nc",
+      "bytes": 27548216,
+      "mtime_ns": 1452640596000000000
+    },
+    {
+      "path": "data/osu_daily_sla_geovel_2001_v2.nc",
+      "bytes": 27472964,
+      "mtime_ns": 1452640597000000000
+    },
+    {
+      "path": "data/osu_daily_sla_geovel_2002_v2.nc",
+      "bytes": 27472964,
+      "mtime_ns": 1452640597000000000
+    },
+    {
+      "path": "data/osu_daily_sla_geovel_2003_v2.nc",
+      "bytes": 27472964,
+      "mtime_ns": 1452640597000000000
+    },
+    {
+      "path": "data/osu_daily_sla_geovel_2004_v2.nc",
+      "bytes": 27548216,
+      "mtime_ns": 1452640597000000000
+    },
+    {
+      "path": "data/osu_daily_sla_geovel_2005_v2.nc",
+      "bytes": 27472964,
+      "mtime_ns": 1452640597000000000
+    },
+    {
+      "path": "data/osu_daily_sla_geovel_2006_v2.nc",
+      "bytes": 27472964,
+      "mtime_ns": 1452640598000000000
+    },
+    {
+      "path": "data/osu_daily_sla_geovel_2007_v2.nc",
+      "bytes": 27472964,
+      "mtime_ns": 1452640598000000000
+    },
+    {
+      "path": "data/osu_daily_sla_geovel_2008_v2.nc",
+      "bytes": 27548216,
+      "mtime_ns": 1452640598000000000
+    },
+    {
+      "path": "data/osu_daily_sla_geovel_2009_v2.nc",
+      "bytes": 27472964,
+      "mtime_ns": 1452640598000000000
+    },
+    {
+      "path": "data/osu_daily_sla_geovel_2010_v2.nc",
+      "bytes": 27472964,
+      "mtime_ns": 1452640599000000000
+    },
+    {
+      "path": "data/osu_daily_sla_geovel_2011_v2.nc",
+      "bytes": 27472964,
+      "mtime_ns": 1452640599000000000
+    },
+    {
+      "path": "data/osu_daily_sla_geovel_2012_v2.nc",
+      "bytes": 27548216,
+      "mtime_ns": 1452640599000000000
+    }
+  ]
+}

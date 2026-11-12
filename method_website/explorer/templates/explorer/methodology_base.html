@@ -1,0 +1,45 @@
+{% extends "explorer/base.html" %}
+
+{% block extra_js %}
+    <script>
+        window.MathJax = {
+            tex: {
+                inlineMath: [['\\(', '\\)']],
+                displayMath: [['\\[', '\\]']],
+                tags: 'ams'
+            }
+        };
+    </script>
+    <script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js">
+    </script>
+{% endblock %}
+
+{% block content %}
+    <main class="methodology">
+        <nav class="methodology-nav">
+            <a href="{% url 'welcome' %}">
+                ← Back to methods
+            </a>
+        </nav>
+        <header class="methodology-header">
+            <h1>
+                {% block method_title %}
+                {% endblock %}
+            </h1>
+            <p>
+                {% block method_description %}
+                {% endblock %}
+            </p>
+        </header>
+        <div class="methodology-layout">
+            <aside class="methodology-sidebar">
+                {% block methodology_toc %}
+                {% endblock %}
+            </aside>
+            <article class="methodology-content">
+                {% block methodology_content %}
+                {% endblock %}
+            </article>
+        </div>
+    </main>
+{% endblock %}

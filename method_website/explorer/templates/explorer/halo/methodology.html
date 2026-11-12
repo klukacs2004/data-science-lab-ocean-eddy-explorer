@@ -1,0 +1,803 @@
+{% extends "explorer/methodology_base.html" %}
+
+{% block title %}
+    Halo Methodology · Ocean Eddy Explorer
+{% endblock %}
+
+{% block method_title %}
+    Halo-Based Eddy Detection and Tracking
+{% endblock %}
+
+{% block method_description %}
+    Okubo–Weiss dynamics, closed SSH contours, hybrid boundary selection, and daily tracking with position, diameter, and signed vorticity.
+{% endblock %}
+
+{% block methodology_toc %}
+    <h3>Contents</h3>
+    <a href="#introduction">1. Physical motivation and scope</a>
+    <a href="#input">2. Height, velocity, and coordinates</a>
+    <details class="toc-group" open>
+        <summary>3. Identifying rotating regions</summary>
+        <div class="toc-subsections">
+            <a href="#velocity-gradients">3.1 Velocity derivatives</a>
+            <a href="#okubo-weiss">3.2 The Okubo–Weiss parameter</a>
+            <a href="#hanning-filter">3.3 Hanning smoothing</a>
+            <a href="#rotating-cores">3.4 Connected negative-W cores</a>
+        </div>
+    </details>
+    <details class="toc-group">
+        <summary>4. Selecting eddy boundaries</summary>
+        <div class="toc-subsections">
+            <a href="#closed-contours">4.1 Closed height contours</a>
+            <a href="#diameter">4.2 Maximum contour diameter</a>
+            <a href="#hybrid-selection">4.3 Combining geometry and rotation</a>
+            <a href="#outermost-contour">4.4 Outermost selection and area</a>
+        </div>
+    </details>
+    <a href="#parameters">5. Parameter sensitivity</a>
+    <a href="#diagnostics">6. Interpreting diagnostics</a>
+    <details class="toc-group">
+        <summary>7. Comparison with the paper</summary>
+        <div class="toc-subsections">
+            <a href="#paper-differences">7.1 Preserved rules and reconstruction choices</a>
+            <a href="#tracking-paper">7.2 The paper's temporal analysis</a>
+            <a href="#limitations">7.3 Resolution and validation</a>
+        </div>
+    </details>
+    <details class="toc-group">
+        <summary>8. Tracking eddies across days</summary>
+        <div class="toc-subsections">
+            <a href="#tracking">8. Tracking overview</a>
+            <a href="#tracking-inputs">8.1 Daily inputs and vorticity</a>
+            <a href="#tracking-score">8.2 Eligibility and matching score</a>
+            <a href="#tracking-assignment">8.3 One-to-one assignment</a>
+            <a href="#tracking-gaps">8.4 Optional gap recovery</a>
+            <a href="#tracking-controls">8.5 Controls and defaults</a>
+            <a href="#tracking-lifetime">8.6 Observed spans and interpretation</a>
+        </div>
+    </details>
+    <a href="{% url 'halo_detection' %}">Open the Halo explorer →</a>
+    <a href="{% url 'halo_tracker' %}">Open the Tracking Explorer →</a>
+{% endblock %}
+
+{% block methodology_content %}
+    <section id="introduction">
+        <h2>1. Physical motivation and scope</h2>
+        <p>
+The Halo method combines the geometry of closed sea-surface-height
+        contours with a dynamical measure of rotation-dominated flow. A height
+        loop supplies a candidate perimeter; negative Okubo–Weiss values supply
+        evidence of a rotating region associated with that loop.
+        </p>
+        <p>
+Reference: <a href="https://doi.org/10.1016/j.dsr2.2013.10.015">Halo,
+        Backeberg, Penven, Ansorge, Reason and Ullgren (2014), Eddy properties in
+        the Mozambique Channel: A comparison between observations and two
+        numerical ocean circulation models</a>, Deep-Sea Research II 100,
+        38–53. Section 2.3 and Figure 2 describe the hybrid detection procedure.
+        </p>
+        <p>
+The combination addresses two sources of ambiguity: velocity derivatives
+        can generate noisy negative-W regions, while closed height loops can
+        surround elongated structures or multiple cores. The paper combines both
+        sources of evidence to obtain a more consistent eddy pattern.
+        </p>
+        <p>
+The detection explorer implements single-day detection. The separate
+        tracking explorer associates accepted daily boundaries using the regional
+        adaptation in section 8. An accepted boundary is
+        a snapshot feature that satisfies the implemented checks; it is not
+        evidence by itself of material trapping, persistence, or a complete
+        tracked eddy. Details that the article leaves unspecified are identified
+        below as reconstruction choices.
+        </p>
+    </section>
+
+    <section id="input">
+        <h2>2. Height, velocity, and coordinates</h2>
+        <p>
+The inputs are height \(h\) in metres, eastward velocity \(u\) and
+        northward velocity \(v\) in metres per second, and a common rectilinear
+        latitude–longitude grid. Arrays have shape
+        \((N_{\phi},N_{\lambda})\), with latitude along rows and longitude
+        along columns. Coordinates must be finite and strictly increasing, with
+        at least three points along each axis.
+        </p>
+        <p>
+The paper uses absolute SSH/absolute dynamic topography (ADT) and
+        geostrophic velocities. It applies no SSH high-pass filtering. The
+        current explorer instead uses the daily OSU blended sea-level-anomaly
+        dataset over the U.S. West Coast on a 0.25° grid and its supplied
+        geostrophic velocities. Its height variable is identified as SLA in
+        the source metadata.
+        </p>
+        <div class="equation">
+            \[
+                \eta'(x,y,t)=\eta(x,y,t)-\overline{\eta}(x,y).
+            \]
+        </div>
+        <p>
+SLA and absolute dynamic height have different spatial reference
+        surfaces. Recovering ADT requires the appropriate spatially varying
+        mean dynamic topography; adding a constant is insufficient. Matching
+        total geostrophic velocities are also needed for an absolute-SSH
+        reproduction. The current results are therefore an SLA adaptation.
+        </p>
+        <p>
+Height and velocity coordinates are aligned before detection. Missing
+        observations remain missing rather than being replaced with physical
+        zero values. No additional height smoothing or background subtraction
+        is applied on this page.
+        </p>
+    </section>
+
+    <section id="rotating-regions">
+        <h2>3. Identifying rotating regions</h2>
+        <h3 id="velocity-gradients">3.1 Velocity derivatives on the geographic grid</h3>
+        <p>
+The velocity-gradient calculation uses local Cartesian distances
+        approximated from longitude \(\lambda\) and latitude \(\phi\):
+        </p>
+        <div class="equation">
+            \[
+                \mathrm{d}x\simeq R_\oplus\cos\phi\,\mathrm{d}\lambda,
+                \qquad \mathrm{d}y\simeq R_\oplus\,\mathrm{d}\phi,
+                \qquad R_\oplus=6{,}371{,}000\ \mathrm{m}.
+            \]
+        </div>
+        <p>
+Angles are expressed in radians. Coordinate-aware central differences
+        estimate the four derivatives; for a velocity component \(q\),
+        </p>
+        <div class="equation">
+            \[
+                \frac{\partial q}{\partial x}
+                    \simeq\frac{1}{R_\oplus\cos\phi}
+                           \frac{\partial q}{\partial\lambda},
+                \qquad
+                \frac{\partial q}{\partial y}
+                    \simeq\frac{1}{R_\oplus}
+                           \frac{\partial q}{\partial\phi}.
+            \]
+        </div>
+        <p>
+Only the interior grid is retained, giving a W array of shape
+        \((N_{\phi}-2,N_{\lambda}-2)\). Its grid point \((i,j)\)
+        corresponds to height-grid point \((i+1,j+1)\). This offset is retained
+        when associating cores with height polygons. The calculation uses local
+        Cartesian derivatives, not a full spherical velocity-gradient tensor.
+        </p>
+
+        <h3 id="okubo-weiss">3.2 Strain, vorticity, and the Okubo–Weiss parameter</h3>
+        <p>
+Normal strain \(s_n\), shear strain \(s_s\), and relative vorticity
+        \(\zeta\) are defined by
+        </p>
+        <div class="equation">
+            \[
+                s_n=\frac{\partial u}{\partial x}-\frac{\partial v}{\partial y},
+                \qquad
+                s_s=\frac{\partial v}{\partial x}+\frac{\partial u}{\partial y},
+                \qquad
+                \zeta=\frac{\partial v}{\partial x}-\frac{\partial u}{\partial y}.
+            \]
+        </div>
+        <div class="equation">
+            \[
+                W=s_n^2+s_s^2-\zeta^2.
+            \]
+        </div>
+        <p>
+W has units of s⁻². Negative values indicate that squared vorticity
+        exceeds squared strain; positive values indicate strain dominance.
+        The detector uses the strict condition \(W\lt0\), without an
+        additional negative threshold based on a spatial standard deviation.
+        </p>
+        <p>
+W does not determine rotation direction: the vorticity contribution is
+        squared. A negative-W region can be clockwise or counterclockwise.
+        This explorer does not assign polarity solely from the sign of SLA
+        or from W.
+        </p>
+
+        <h3 id="hanning-filter">3.3 Hanning smoothing of W</h3>
+        <p>
+The paper applies two Hanning passes to reduce grid-scale noise in W.
+        This implementation uses the normalized separable 3 × 3 stencil
+        </p>
+        <div class="equation">
+            \[
+                H=\frac{1}{16}
+                \begin{bmatrix}
+                    1 &amp; 2 &amp; 1\\
+                    2 &amp; 4 &amp; 2\\
+                    1 &amp; 2 &amp; 1
+                \end{bmatrix}.
+            \]
+        </div>
+        <p>
+For each pass, finite-neighbour normalization prevents missing cells
+        from being treated as zero-valued observations. If \(M\) is the finite
+        mask and \(W_0\) is W with invalid values replaced by zero for the
+        convolution only,
+        </p>
+        <div class="equation">
+            \[
+                \widetilde W=\frac{H*W_0}{H*M}.
+            \]
+        </div>
+        <p>
+Division is performed where the denominator is positive; originally
+        missing cells are then restored to missing. Convolution uses reflecting
+        edges. Each pass acts on the preceding pass's W field. These stencil
+        and boundary-handling details are reconstruction choices; the article
+        specifies the filter name and number of passes.
+        </p>
+
+        <h3 id="rotating-cores">3.4 Connected negative-W cores</h3>
+        <p>After the selected number of passes, define the rotation mask</p>
+        <div class="equation">
+            \[
+                \mathcal R=\{p:\widetilde W(p)\lt0\}.
+            \]
+        </div>
+        <p>
+Eight-neighbour connectivity groups this mask into cores: pixels
+        sharing an edge or corner belong to the same connected region. Missing
+        cells and pixels with W equal to zero are excluded.
+        </p>
+        <p>
+For each core \(C_k\), a representative is chosen at the grid point
+        with minimum smoothed W:
+        </p>
+        <div class="equation">
+            \[
+                r_k=\underset{p\in C_k}{\operatorname{arg\,min}}\,
+                    \widetilde W(p).
+            \]
+        </div>
+        <p>
+Ties select the first point in row-major order. Connectivity and this
+        representative rule are explicit implementation choices, not a verified
+        reproduction of the original MATLAB merge procedure. A core
+        representative is also not necessarily the height extremum or a
+        dynamically estimated eddy center.
+        </p>
+    </section>
+
+    <section id="boundaries">
+        <h2>4. Selecting eddy boundaries</h2>
+        <h3 id="closed-contours">4.1 Closed height contours</h3>
+        <p>
+The height field is contoured at evenly spaced levels, with default
+        interval \(\Delta h=0.02\) m. The level sequence is anchored to integer
+        multiples of that interval, from the rounded-down finite minimum to
+        the rounded-up finite maximum.
+        </p>
+        <div class="equation">
+            \[
+                L_n=n\Delta h,\qquad n\in\mathbb Z.
+            \]
+        </div>
+        <p>
+Contours are traced in fractional grid-index coordinates. A contour
+        is retained as closed when its first and last vertices agree within
+        a Euclidean tolerance of \(10^{-6}\) grid cells. Open contours are
+        discarded before the candidate table is constructed. No minimum
+        amplitude, pixel-count criterion, or Nencioli velocity-sign constraint
+        is added to this stage.
+        </p>
+
+        <h3 id="diameter">4.2 Maximum contour diameter</h3>
+        <p>
+Fractional contour coordinates are interpolated separately onto
+        latitude and longitude. Diameter is the maximum great-circle distance
+        between every pair of sampled contour vertices:
+        </p>
+        <div class="equation">
+            \[
+                D(C)=\max_{p,q\in C}d_{\mathrm{gc}}(p,q),
+                \qquad D(C)\leq D_{\mathrm{lim}}.
+            \]
+        </div>
+        <p>
+The default limit is 600 km, as in the paper, to exclude gyre-scale
+        loops. Great-circle distances use a spherical Earth of radius 6371 km.
+        Loops above the cap are discarded before candidate diagnostics.
+        This diameter is not a radius of maximum speed or twice an
+        area-equivalent radius.
+        </p>
+
+        <h3 id="hybrid-selection">4.3 Combining geometry and rotation</h3>
+        <p>
+Each closed loop within the diameter limit is tested against the
+        velocity-derived cores. The implemented selection proceeds as follows:
+        </p>
+        <ol>
+            <li>
+Require finite height and both velocity components at interior
+            height-grid points.
+            </li>
+            <li>Require at least one negative-W grid point inside the loop.</li>
+            <li>Require exactly one core representative inside the loop.</li>
+            <li>
+Compare eligible loops associated with that representative
+            during outermost selection.
+            </li>
+        </ol>
+        <p>
+A loop that merely intersects a negative-W region without enclosing
+        its representative is rejected as incidental overlap. A loop enclosing
+        multiple representatives is rejected as a multi-core candidate. A
+        representative may lie inside even when part of its connected core
+        extends outside the loop; full enclosure of the entire negative-W
+        region is not required.
+        </p>
+        <p>
+The paper motivates combining negative W and closed SSH loops to
+        reduce multi-core and elongated-loop ambiguities. The representative
+        test above makes that association explicit for this reconstruction.
+        There is no additional aspect-ratio or elongation threshold.
+        </p>
+
+        <h3 id="outermost-contour">4.4 Outermost selection and polygon area</h3>
+        <p>
+Eligible loops are sorted by decreasing polygon area in fractional
+        grid coordinates. For each connected core, only the largest eligible
+        loop is accepted; subsequent loops for that core are marked as nested
+        duplicates. Equal areas are resolved by candidate ID.
+        </p>
+        <div class="equation">
+            \[
+                A_{\mathrm{grid}}=
+                    \frac12\left|\sum_{n=1}^{N}
+                    (i_nj_{n+1}-i_{n+1}j_n)\right|,
+                \qquad (i_{N+1},j_{N+1})=(i_1,j_1).
+            \]
+        </div>
+        <p>
+This shoelace area ranks polygons and is displayed in grid-cell
+        units. It is not a physical area in km², and no effective radius is
+        inferred from it. The map marker is the mean of the distinct contour
+        vertices, rather than an area centroid or a detected dynamical center.
+        </p>
+    </section>
+
+    <section id="parameters">
+        <h2>5. Parameter sensitivity and physical scale</h2>
+        <div class="table-scroll">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Parameter</th>
+                        <th>Paper default</th>
+                        <th>Effect in this explorer</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Contour interval \(\Delta h\)</td>
+                        <td>2 cm</td>
+                        <td>Smaller intervals sample more candidate levels and can resolve a different outermost eligible boundary.</td>
+                    </tr>
+                    <tr>
+                        <td>Diameter limit \(D_{\mathrm{lim}}\)</td>
+                        <td>600 km</td>
+                        <td>A larger cap permits broader loops; it does not change the W calculation.</td>
+                    </tr>
+                    <tr>
+                        <td>Hanning passes</td>
+                        <td>2</td>
+                        <td>Changes the W field and can merge, split, or remove connected negative-W cores. Zero passes uses raw W.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <p>
+The explorer accepts contour intervals from 0.5 to 20 cm, diameter
+        limits from 10 to 1000 km, and zero to six Hanning passes. These ranges
+        support exploration and are not parameter bounds stated by the paper.
+        </p>
+        <p>
+The paper reports limited sensitivity to its three tuning parameters
+        in its study setting. That result does not guarantee insensitivity on
+        this different dataset. A 0.25° latitude step is about 27.8 km; the
+        longitude spacing is smaller by a latitude-dependent cosine factor.
+        Grid resolution and the mapping of the source observations constrain
+        which cores and contours can be resolved.
+        </p>
+        <p>
+The paper-comparison panel reruns the same day with the default
+        parameters and the same reconstruction rules. Its counts compare
+        settings on this dataset; they are not published catalogue counts or
+        a measure of detection accuracy.
+        </p>
+    </section>
+
+    <section id="diagnostics">
+        <h2>6. Interpreting candidate diagnostics</h2>
+        <p>
+The candidate table begins after open contours and loops above the
+        diameter cap have been excluded. Consequently, its total is not the
+        number of all traced contours or the number of rotating regions.
+        Several candidate loops can be associated with one core.
+        </p>
+        <div class="table-scroll">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Decision</th>
+                        <th>Meaning</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Missing interior data</td>
+                        <td>The loop encloses height-grid points without finite height or one of the velocity components.</td>
+                    </tr>
+                    <tr>
+                        <td>No rotating region</td>
+                        <td>No negative-W pixels lie inside the loop.</td>
+                    </tr>
+                    <tr>
+                        <td>Multiple core representatives</td>
+                        <td>Representatives of more than one connected negative-W region are enclosed.</td>
+                    </tr>
+                    <tr>
+                        <td>Incidental core overlap</td>
+                        <td>The loop intersects negative W but encloses no core representative.</td>
+                    </tr>
+                    <tr>
+                        <td>Nested duplicate</td>
+                        <td>The loop was eligible, but a larger eligible loop has already been selected for the same core.</td>
+                    </tr>
+                    <tr>
+                        <td>Accepted</td>
+                        <td>The loop passes the implemented checks and is retained for its core.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <p>
+Each rejected loop is assigned its first failed selection check.
+            Subsequent checks are shown as <strong>Not evaluated</strong>, rather
+        than counted as additional failures. Nested duplicates are rejected
+        candidate loops, not additional eddies.
+        </p>
+        <p>
+Candidate IDs are specific to the selected date and parameters. The
+        core IDs in the rotating-region plot refer to connected negative-W
+        components and are a separate numbering system. Changing the contour
+        interval or W smoothing can change both associations and candidate IDs.
+        </p>
+        <p>
+The inspector links the candidate's highlighted contour, close-up,
+        measurements, decision explanation, and check outcomes. The CSV export
+        records the same candidate IDs and decisions shown in the table.
+        </p>
+        <p><a href="{% url 'halo_detection' %}">Open the Halo explorer to investigate a date and candidate</a>.</p>
+    </section>
+
+    <section id="comparison">
+        <h2>7. Comparison with the paper and limits</h2>
+        <h3 id="paper-differences">7.1 Preserved rules and reconstruction choices</h3>
+        <div class="table-scroll">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Aspect</th>
+                        <th>What is preserved</th>
+                        <th>What to account for here</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Dynamical criterion</td>
+                        <td>Compute W from geostrophic velocity, smooth it, and select negative values.</td>
+                        <td>Local Cartesian derivatives on an interior geographic grid, a specific Hanning stencil, mask normalization, and reflecting edges are numerical choices.</td>
+                    </tr>
+                    <tr>
+                        <td>Height geometry</td>
+                        <td>Closed contours at 2 cm intervals and a maximum diameter of 600 km by default; no height high-pass filter.</td>
+                        <td>Level anchoring, closure tolerance, contour interpolation, and vertex-based diameter specify the numerical implementation.</td>
+                    </tr>
+                    <tr>
+                        <td>Hybrid selection</td>
+                        <td>Require an association between a closed height loop and negative W.</td>
+                        <td>Eight-connected cores, minimum-W representatives, single-representative selection, and largest-area deduplication reconstruct details not fully specified by the article.</td>
+                    </tr>
+                    <tr>
+                        <td>Input and sampling</td>
+                        <td>Use collocated height and velocity fields.</td>
+                        <td>Daily U.S. West Coast SLA differs from absolute SSH/ADT in the Mozambique Channel and the paper's seven-day altimetry sampling.</td>
+                    </tr>
+                    <tr>
+                        <td>Output</td>
+                        <td>Snapshot boundaries and a separate daily tracker with configurable observed-span retention.</td>
+                        <td>Section 8 describes the experimental SLA tracking adaptation; equivalence to the original MATLAB implementation or published tracked catalogue has not been independently validated.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <h3 id="tracking-paper">7.2 The paper's temporal analysis</h3>
+        <p>
+The paper links eddies between frames using a minimum distance in a
+        property space containing position, diameter, and vorticity. A change
+        in vorticity sign is disallowed to preserve polarity. The study then
+        retains eddies with lifetimes greater than 30 days.
+        </p>
+        <p>
+These temporal stages are not applied by this single-day explorer.
+        Passing the snapshot checks cannot establish an eddy's lifetime,
+        trajectory, or membership in the paper's lifetime-selected population.
+        </p>
+
+        <p>The separate <a href="{% url 'halo_tracker' %}">Halo Tracking Explorer</a>
+        applies the daily association and observed-span selection described in
+            <a href="#tracking">section 8</a>. Its regional SLA inputs, experimental
+        gates, and optional gap recovery distinguish it from the paper's catalogue.
+        </p>
+
+        <h3 id="limitations">7.3 Resolution, boundaries, and validation</h3>
+        <p>
+Velocity derivatives amplify small-scale noise, while smoothing can
+        connect distinct vortices or fragment their apparent cores. A connected
+        negative-W region can therefore contain more than one physical feature;
+        conversely, disconnected noise patches can introduce multiple
+        representatives inside a plausible height loop.
+        </p>
+        <p>
+Open contours near the domain edge cannot establish a closed perimeter.
+        Missing-data guards inspect interior grid points, rather than proving
+        continuous validity at every sub-grid location. The implementation
+        assumes a regional increasing-coordinate grid and does not handle
+        periodic longitude seams or a polar coordinate singularity.
+        </p>
+        <p>
+Inspect sensitivity across dates and parameters before interpreting
+        detections. Agreement with these checks is not an independent truth
+        label: accuracy requires annotated reference features or another
+        independent evaluation, and dynamical persistence requires a multi-date
+        analysis.
+        </p>
+    </section>
+    <section id="tracking">
+        <h2>8. Tracking eddies across days</h2>
+        <p>The <a href="{% url 'halo_tracker' %}">Halo Tracking Explorer</a> runs
+        the hybrid detector independently on each date, then links compatible
+        detections through time. This section describes the implemented daily
+        OSU SLA adaptation. Its matching settings are experimental configuration
+        choices, not calibrated universal constants or a reproduction of the
+        paper's complete tracked population.
+        </p>
+
+        <h3 id="tracking-inputs">8.1 Daily inputs and representative vorticity</h3>
+        <p>
+Height and the two velocity components must align exactly on the same
+        grid. Each available day uses the selected contour interval, maximum
+        contour diameter, and W smoothing. Unavailable dates become empty detection
+        days and are listed in the results. Processing failures and changing
+        coordinate grids stop the run with an error.
+        </p>
+        <p>
+Accepted contours are converted to geographic coordinates. Tracking
+        centers are spherical means of contour vertices. For spherical contour
+        area \(S\), the tracking diameter is \(D=2\sqrt{S/\pi}\), rather than
+        the maximum pairwise diameter used by the detector's size gate. The
+        standalone tracking explorer's standardized polarity field remains unknown because W does not supply a
+        rotation sign; association instead uses signed relative vorticity.
+        </p>
+        <p>The daily <a href="{% url 'comparison' %}">method comparison</a>
+        additionally classifies Halo polarity from that signed contour-mean
+        vorticity and the hemisphere. Positive means cyclonic in the Northern
+        Hemisphere and anticyclonic in the Southern Hemisphere. Unavailable or
+        zero means and contours touching or crossing the equator remain unresolved.
+        This classification supplies polarity evidence for same-day matching;
+        it does not change the detection boundaries.
+        </p>
+        <div class="equation">
+            \[
+            \zeta=\frac{\partial v}{\partial x}-\frac{\partial u}{\partial y},
+            \qquad
+            \bar\zeta=\frac{\sum_{k\in I}w_k\zeta_k}{\sum_{k\in I}w_k},
+            \qquad w_k\propto\cos\phi_k\,\Delta\phi_k\,\Delta\lambda_k.
+            \]
+        </div>
+        <p>
+The set \(I\) contains derivative-grid centers strictly inside the
+        native contour, excluding boundary samples. The approximate spherical
+        cell-area weights account for latitude and grid spacing. Empty interiors,
+        any missing interior vorticity, nonfinite or exactly zero means, and means
+        at or below the configured absolute-vorticity floor are excluded and
+        reported. These are tracking-quality exclusions, separate from detector
+        rejection reasons.
+        </p>
+        <p>
+By default, vorticity comes from the raw velocity derivatives used to
+        calculate W. Optional Hanning passes smooth the velocity components before
+        differentiating for this tracking statistic. This sensitivity leaves the
+        detection contours and W calculation unchanged; it is separate from the
+        detector's Hanning smoothing of W.
+        </p>
+
+        <h3 id="tracking-score">8.2 Eligibility gates and generalized distance</h3>
+        <p>
+For a track's last observation and a candidate on the next calendar
+        day, first require great-circle center displacement \(d\leq d_{\max}\),
+        default 50 km. Vorticity must preserve its sign:
+        \(\bar\zeta_{\mathrm{last}}\bar\zeta_{\mathrm{new}}>0\).
+        Eligible pairs receive the dimensionless score
+        </p>
+        <div class="equation">
+            \[
+            J=\sqrt{
+                \left(\frac{d}{s_x}\right)^2+
+                \left(\frac{D_{\mathrm{new}}-D_{\mathrm{last}}}{s_D}\right)^2+
+                \left(\frac{\bar\zeta_{\mathrm{new}}-\bar\zeta_{\mathrm{last}}}{s_\zeta}\right)^2
+            }.
+            \]
+        </div>
+        <p>
+Reference scales are \(s_x=25\) km, \(s_D=200\) km, and
+        \(s_\zeta=10^{-5}\ \mathrm{s}^{-1}\). They normalize changes;
+        the position scale is not the hard displacement limit. By default a pair
+        must also satisfy \(J\leq2\). Leaving the score-cutoff field blank
+        removes this score gate while retaining the displacement and sign gates.
+        Differences are relative to the last observation, without velocity-based
+        position prediction or a contour-overlap criterion.
+        </p>
+
+        <h3 id="tracking-assignment">8.3 One-to-one assignment on each date</h3>
+        <p>
+The default global assignment first maximizes the number of eligible
+        track–detection pairs, then minimizes their total score. Explicit unmatched
+        alternatives allow tracks to remain unmatched when no eligible detection
+        exists. The optimization covers the current date, not future trajectories.
+        </p>
+        <p>
+The optional greedy mode sorts pairs by increasing score, with track ID
+        and today's input detection index resolving exact ties, and accepts each
+        pair only if both members remain unassigned. Both modes use each track
+        and detection at most once per date. Unassigned detections start new
+        tracks with run-local IDs; tracks do not split or merge.
+        </p>
+        <p>
+With gaps disabled, unmatched tracks close immediately. A missing or
+        empty day therefore breaks every active track. Historical association
+        settings can be explored by choosing greedy assignment, leaving the score
+        cutoff blank, and retaining zero gap days, zero velocity-smoothing passes,
+        and a zero vorticity floor.
+        </p>
+
+        <h3 id="tracking-gaps">8.4 Optional one-day gap recovery</h3>
+        <p>
+Setting the missing-day allowance to one enables a second pass after
+        adjacent-day assignment. Only remaining unassigned detections can match
+        tracks last observed two calendar days ago. Adjacent-day matches take
+        priority even when a gap candidate has a lower score.
+        </p>
+        <p>
+The gap pass preserves vorticity sign and uses a total two-day
+        displacement cap of 50 km and a score cutoff of 1 by default. Neither
+        configurable gap limit may be looser than its daily counterpart when
+        that daily gate is present. The distance is not doubled for the longer
+        elapsed time. Additional continuity gates are
+        </p>
+        <div class="equation">
+            \[
+            \frac1{1.5}\leq\frac{D_{\mathrm{new}}}{D_{\mathrm{last}}}\leq1.5,
+            \qquad
+            \frac12\leq\frac{|\bar\zeta_{\mathrm{new}}|}{|\bar\zeta_{\mathrm{last}}|}\leq2.
+            \]
+        </div>
+        <p>
+These diameter and vorticity-magnitude ratio limits are fixed in the
+        explorer. A track may bridge separate single-day gaps, but cannot survive
+        two consecutive missing observations. Recovered intervals are listed and
+        drawn as dashed segments; no observation or interpolated center is inserted
+        on the missing date.
+        </p>
+
+        <h3 id="tracking-controls">8.5 Controls and defaults</h3>
+        <div class="table-scroll">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Control</th>
+                        <th>Default</th>
+                        <th>Meaning</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Duration</td>
+                        <td>30 days</td>
+                        <td>1–90 consecutive calendar days, including the starting date.</td>
+                    </tr>
+                    <tr>
+                        <td>Daily detection</td>
+                        <td>2 cm / 600 km / 2 passes</td>
+                        <td>Contour interval / maximum pairwise contour diameter / Hanning passes on W.</td>
+                    </tr>
+                    <tr>
+                        <td>Assignment</td>
+                        <td>Global one-to-one</td>
+                        <td>Maximum eligible match count, then minimum total score; greedy mode is also available.</td>
+                    </tr>
+                    <tr>
+                        <td>Daily displacement limit</td>
+                        <td>50 km</td>
+                        <td>Hard center-distance gate, separate from score normalization.</td>
+                    </tr>
+                    <tr>
+                        <td>Score scales</td>
+                        <td>25 km / 200 km / 10⁻⁵ s⁻¹</td>
+                        <td>Position / equivalent-area diameter / signed mean vorticity.</td>
+                    </tr>
+                    <tr>
+                        <td>Maximum score</td>
+                        <td>2.0</td>
+                        <td>Inclusive dimensionless cutoff; blank removes this gate.</td>
+                    </tr>
+                    <tr>
+                        <td>Missing-day allowance</td>
+                        <td>0</td>
+                        <td>Optional value 1 enables a separate gap pass.</td>
+                    </tr>
+                    <tr>
+                        <td>Gap displacement / score</td>
+                        <td>50 km / 1.0</td>
+                        <td>Total two-day displacement and score limits; no looser than the corresponding daily gates.</td>
+                    </tr>
+                    <tr>
+                        <td>Velocity smoothing</td>
+                        <td>0 passes</td>
+                        <td>0–20 Hanning passes used only for representative tracking vorticity.</td>
+                    </tr>
+                    <tr>
+                        <td>Absolute-vorticity floor</td>
+                        <td>0 s⁻¹</td>
+                        <td>Nonnegative; means at or below the floor are excluded. A positive floor requires calibration.</td>
+                    </tr>
+                    <tr>
+                        <td>Minimum observed span</td>
+                        <td>4 days</td>
+                        <td>At least one day and no greater than the selected duration; use 31 for an over-30-day selection.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <h3 id="tracking-lifetime">8.6 Observed spans, censoring, and interpretation</h3>
+        <div class="equation">
+            \[L=(t_{\mathrm{last}}-t_{\mathrm{first}})_{\mathrm{days}}+1.\]
+        </div>
+        <p>
+Retention is applied after association using this inclusive observed
+        span. Observations on days 1, 2, and 4 give a four-day span but only three
+        observations when gap recovery is enabled. The default four-day threshold
+        is exploratory; a minimum of 31 selects observed spans greater than 30 days.
+        Track IDs are not renumbered after filtering, and the displayed statistics
+        describe retained tracks only. Standardized polarity totals can remain
+        unknown even though signed vorticity was used to match observations.
+        </p>
+        <p>
+A track is flagged as window-censored when its first observation lies
+        within the gap allowance of the analysis start, or its last observation
+        lies within that allowance of the analysis end. Thus the margin is zero
+        days by default and one day when gap recovery is enabled. A censored track
+        may extend outside the selected interval; even an interior endpoint can
+        result from a detection or association failure rather than physical birth
+        or decay. Observed span is not an exact physical lifetime.
+        </p>
+        <p>
+The map and selected-track time series retain separate daily observations
+        at repeated coordinates. The time series measures distance from the first
+        assigned center, not cumulative travel or propagation speed. Grid points
+        use the first available day's non-NaN SLA mask for display, not a guarantee
+        of valid data on every date. Compare settings one change at a time:
+        longer tracks alone do not establish more accurate eddy identities.
+        </p>
+    </section>
+{% endblock %}

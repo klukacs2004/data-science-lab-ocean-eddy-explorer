@@ -1,0 +1,4 @@
+# Optional formatting tools. Application dependencies remain in requirements.txt.
+black==26.10.1
+cssbeautifier==2.0.3
+djlint==1.50.0

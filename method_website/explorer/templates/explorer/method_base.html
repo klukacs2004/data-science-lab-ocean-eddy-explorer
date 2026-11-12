@@ -1,0 +1,79 @@
+{% extends "explorer/base.html" %}
+{% load static %}
+
+{% block content %}
+    <div class="app">
+        <aside class="sidebar" id="explorer-sidebar">
+            <a class="back-link" href="{% url 'welcome' %}">← Project overview</a>
+            <div class="brand">
+                <span class="brand-mark" aria-hidden="true">≈</span>
+                {% block brand %}
+                {% endblock %}
+            </div>
+            <form method="post" id="analysis-form">
+                {% csrf_token %}
+                {{ form.non_field_errors }}
+                <div class="date-row">
+                    <div class="form-field">
+                        {{ form.year.as_field_group }}
+                    </div>
+                    <div class="form-field">
+                        {{ form.day.as_field_group }}
+                    </div>
+                </div>
+                {% block form_content %}
+                {% endblock %}
+                <div class="form-actions">
+                    <button type="submit">{% block submit_label %}Run detection{% endblock %}</button>
+                </div>
+                <p id="run-status" role="status" aria-live="polite">
+                </p>
+            </form>
+            <div class="dataset">
+                <span class="eyebrow">Dataset</span>
+                <p>
+                    <strong>OSU blended altimetry</strong>
+                    <br>
+Daily sea-level anomaly
+                    <br>
+0.25° grid · U.S. West Coast
+                </p>
+            </div>
+            <div class="sidebar-resizer"
+                 role="separator"
+                 tabindex="0"
+                 aria-label="Resize sidebar"
+                 aria-orientation="vertical"
+                 aria-controls="explorer-sidebar"
+                 aria-valuemin="240"
+                 aria-valuemax="600"
+                 aria-valuenow="350"
+                 title="Drag to resize · Arrow keys to adjust · Double-click to reset">
+            </div>
+        </aside>
+        <main class="workspace">
+            <div class="topline">
+                <span>Ocean dynamics / Method explorer</span>
+                <span>{% block analysis_scope %}Single-day analysis{% endblock %}</span>
+            </div>
+            <span class="eyebrow">Explore the method</span>
+            <header class="page-header">
+                <h1>
+                    {% block page_title %}
+                    {% endblock %}
+                </h1>
+                <p class="introduction">
+                    {% block page_introduction %}
+                    {% endblock %}
+                </p>
+            </header>
+            {% block page_content %}
+            {% endblock %}
+            <footer>
+                {% block footer %}
+                {% endblock %}
+            </footer>
+        </main>
+    </div>
+    <script src="{% static 'explorer/sidebar.js' %}" defer></script>
+{% endblock %}

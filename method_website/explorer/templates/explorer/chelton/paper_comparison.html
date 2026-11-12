@@ -1,0 +1,88 @@
+<section class="panel" id="paper-comparison" aria-labelledby="paper-title">
+    <div class="panel-head">
+        <h2 id="paper-title">How does this compare with Chelton et al.?</h2>
+        <span class="eyebrow">Method and context</span>
+    </div>
+    <p>Reference: <a href="https://doi.org/10.1016/j.pocean.2011.01.002"
+                     target="_blank"
+                     rel="noopener">Chelton, Schlax &amp; Samelson (2011), Global observations of nonlinear mesoscale eddies</a>, Appendix B.2–B.3, pp. 206–208. This page implements single-map identification, rather than reproducing the complete global tracked catalogue.</p>
+    <p><a href="{% url 'chelton_methodology' %}">Read the equations and detailed implementation notes</a>.</p>
+    {% if paper_comparison %}
+        <h3>Same date and detection settings, different filtering</h3>
+        <div class="table-scroll">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Processing on {{ run_settings.day|date:"Y-m-d" }}</th>
+                        <th>Accepted patches</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Your selected processing: {{ filtering.label }}</td>
+                        <td>{{ paper_comparison.selected }}</td>
+                    </tr>
+                    <tr>
+                        <td>Gaussian approximation calibrated to 20° × 10° cutoff scales</td>
+                        <td>{{ paper_comparison.paper_scale }}</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <p>Both counts are computed here using the same {% if run_settings.mode == "scan" %}full scan{% else %}threshold and polarity{% endif %}. They are not the paper's published counts. The Gaussian option matches stated axial cutoff scales, not an independently verified reproduction of the paper's filter kernel.</p>
+    {% endif %}
+    <div class="table-scroll">
+        <table class="paper-table">
+            <thead>
+                <tr>
+                    <th>Aspect</th>
+                    <th>Paper</th>
+                    <th>This explorer</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <th>Data and sampling</th>
+                    <td>Global 0.25° AVISO Reference Series, sampled every 7 days, covering 1992–2008.</td>
+                    <td>Daily OSU blended altimetry over the U.S. West Coast. Different source fields, coverage, and cadence prevent direct comparison of catalogue counts.</td>
+                </tr>
+                <tr>
+                    <th>Background removal</th>
+                    <td>Spatial high-pass filtering with cutoff wavelengths of 20° longitude × 10° latitude.</td>
+                    <td>Choose a custom Gaussian, a Gaussian approximation calibrated to those scales, or no additional filtering. The custom σ=4 cells gives approximately 4.01° × 4.01° ideal high-pass half-power wavelengths on a 0.25° grid. Coastline normalization and the limited domain alter the response.</td>
+                </tr>
+                <tr>
+                    <th>Threshold search</th>
+                    <td>Both polarities scanned from −100 to +100 cm in 1 cm steps, in opposite directions. Accepted interior pixels are retired separately for each polarity.</td>
+                    <td>Preserved in full-scan mode. Single-threshold mode is an exploratory extension and does not identify every outermost acceptable region.</td>
+                </tr>
+                <tr>
+                    <th>Shape and extrema</th>
+                    <td>Simply connected regions with 8–999 pixels and at least one strict local extremum whose four neighbors are inside the region.</td>
+                    <td>Uses four-neighbor connectivity and the interior-extremum rule. Multiple extrema are permitted; patches are not automatically split. Extra domain-edge and missing-data guards reject contours that cannot be established on this cropped field.</td>
+                </tr>
+                <tr>
+                    <th>Amplitude</th>
+                    <td>At least 1 cm, measured from the mean SSH of perimeter pixels to the interior extremum.</td>
+                    <td>Same pixel-based amplitude definition. The inspector shows the perimeter mean, extremum, and amplitude; it does not substitute the threshold for the perimeter mean.</td>
+                </tr>
+                <tr>
+                    <th>Compactness</th>
+                    <td>All pixel-pair distances below 400 km poleward of 25°, with the limit increasing linearly to 1200 km at the equator.</td>
+                    <td>Uses great-circle distances for all pixel pairs. The latitude-dependent limit is evaluated at the candidate's mean pixel latitude. All current U.S. West Coast candidates use 400 km.</td>
+                </tr>
+                <tr>
+                    <th>Size measures</th>
+                    <td>Distinguishes area-equivalent radius L_eff from the speed-based radius L_s and Gaussian scales.</td>
+                    <td>Reports pixel area, L_eff, and maximum pair distance. It does not estimate L_s; a compactness distance must not be interpreted as a speed-based eddy diameter.</td>
+                </tr>
+                <tr>
+                    <th>Tracking and nonlinearity</th>
+                    <td>Multi-date tracking and lifetime filtering; main analyses concern tracks of at least 16 weeks and include the nonlinearity metric U/c.</td>
+                    <td>No tracking, lifetime filter, or propagation-speed estimate on this page. Passing these snapshot checks does not prove that a patch is a long-lived nonlinear eddy.</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    <p>Inspect sensitivity and candidate geometry before interpreting the count. Independent labels and a multi-date analysis are needed to evaluate detection accuracy or reproduce the paper's tracked population.</p>
+</section>

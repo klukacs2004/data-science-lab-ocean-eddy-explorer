@@ -1,0 +1,77 @@
+<section class="panel" id="paper-comparison" aria-labelledby="paper-title">
+    <div class="panel-head">
+        <h2 id="paper-title">How does this compare with Halo et al.?</h2>
+        <span class="eyebrow">Method and context</span>
+    </div>
+    <p>Reference: <a href="https://doi.org/10.1016/j.dsr2.2013.10.015"
+                     target="_blank"
+                     rel="noopener">Halo et al. (2014), Eddy properties in the Mozambique Channel</a>, section 2.3 and Figure 2.</p>
+    <p><a href="{% url 'halo_methodology' %}">Read the equations and detailed implementation notes</a>.</p>
+    {% if paper_comparison %}
+        <h3>Same date, selected settings versus paper parameters</h3>
+        <div class="table-scroll">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Processing on {{ run_settings.day|date:"Y-m-d" }}</th>
+                        <th>Accepted loops</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Your settings: {{ run_settings.contour_interval_cm }} cm · {{ run_settings.max_diameter_km }} km · {{ run_settings.filter_passes }} Hanning passes</td>
+                        <td>{{ paper_comparison.selected }}</td>
+                    </tr>
+                    <tr>
+                        <td>Paper parameters: 2 cm · 600 km · 2 Hanning passes</td>
+                        <td>{{ paper_comparison.defaults }}</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <p>Both runs use the current SLA dataset and the same reconstruction rules. These counts are not the paper's published counts or an accuracy assessment.</p>
+    {% endif %}
+    <div class="table-scroll">
+        <table class="paper-table">
+            <thead>
+                <tr>
+                    <th>Aspect</th>
+                    <th>Paper</th>
+                    <th>This explorer</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <th>Input data</th>
+                    <td>Absolute SSH/ADT and geostrophic velocities in the Mozambique Channel; altimetry sampled every seven days.</td>
+                    <td>Daily OSU U.S. West Coast SLA and supplied geostrophic velocity. This is an SLA adaptation, not an absolute-SSH reproduction.</td>
+                </tr>
+                <tr>
+                    <th>Filtering</th>
+                    <td>No SSH high-pass filtering. Two Hanning passes on W.</td>
+                    <td>Height is unchanged. Configurable W smoothing, defaulting to two passes; finite-neighbour normalization preserves missing cells.</td>
+                </tr>
+                <tr>
+                    <th>Contours</th>
+                    <td>2 cm intervals; maximum diameter 600 km.</td>
+                    <td>Same defaults, adjustable for exploration. Diameter is the maximum great-circle distance between contour vertices.</td>
+                </tr>
+                <tr>
+                    <th>Hybrid selection</th>
+                    <td>Combine negative W with closed SSH loops to reduce noise and multi-core ambiguities.</td>
+                    <td>Eight-connected W &lt; 0 regions, represented by their minimum-W grid point. Require one enclosed representative and retain the largest eligible loop per core. These are explicit reconstruction choices for details not fully specified by the article.</td>
+                </tr>
+                <tr>
+                    <th>Data guards</th>
+                    <td>Operational boundary details are not fully specified.</td>
+                    <td>Open and oversized contours are excluded before the candidate table. Missing interior height or velocity rejects a candidate.</td>
+                </tr>
+                <tr>
+                    <th>Tracking and lifetime</th>
+                    <td>Multi-date tracking preserving polarity, followed by a lifetime greater than 30 days.</td>
+                    <td>Single-day identification only; no tracking or lifetime filter. Counts cannot reproduce the lifetime-selected census.</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</section>

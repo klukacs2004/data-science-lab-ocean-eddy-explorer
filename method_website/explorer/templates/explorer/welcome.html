@@ -1,0 +1,198 @@
+{% extends "explorer/base.html" %}
+
+{% block title %}
+    Welcome | Ocean Eddy Explorer
+{% endblock %}
+
+{% block extra_css %}
+    <style>
+        /* Keep both comparison maps in one row, including with cached base CSS. */
+        #sla-introduction .welcome-field-maps {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(320px, 1fr));
+            gap: 24px;
+            width: 100%;
+            overflow-x: auto;
+            grid-template-rows: auto clamp(340px, 38vw, 500px) auto;
+        }
+        #sla-introduction .welcome-field-map {
+            min-width: 0;
+            display: grid;
+            grid-template-rows: subgrid;
+            grid-row: span 3;
+        }
+        #sla-introduction .welcome-field-map > h3 {
+            margin: 0;
+            align-self: end;
+            padding-bottom: 12px;
+        }
+        #sla-introduction .welcome-field-map .interactive-map {
+            height: 100%;
+            min-height: 0;
+            margin: 0;
+            overflow: hidden;
+        }
+    </style>
+{% endblock %}
+
+{% block content %}
+    <main class="landing welcome-page">
+        <nav class="landing-nav" aria-label="Main navigation">
+            <a class="brand" href="{% url 'welcome' %}">
+                <span class="brand-mark" aria-hidden="true">≈</span>
+                    Ocean Eddy Explorer
+            </a>
+            <div class="welcome-nav-links">
+                <a href="#sla-introduction">Explore the field</a>
+                <a href="#methods">Detection methods</a>
+                <a href="{% url 'comparison' %}">Compare all methods</a>
+                <a href="{% url 'reproduction' %}">Reproduce results</a>
+            </div>
+        </nav>
+        <header class="landing-hero">
+            <span class="eyebrow">Mesoscale ocean dynamics</span>
+            <h1>Mesoscale Ocean Eddies along the U.S. West Coast</h1>
+            <div class="welcome-intro-grid">
+                <div class="introduction">
+                    <p>The ocean is a highly dynamic system characterized by mesoscale eddies that play an important role in ocean circulation.</p>
+                    <p>This project investigates mesoscale eddies along the U.S. West Coast using satellite-derived sea-level anomaly and geostrophic velocity data. Three detection methods are compared to examine how they identify eddies and estimate their properties.</p>
+                </div>
+                <aside class="research-focus" aria-labelledby="research-focus-title">
+                    <span class="eyebrow">Research focus</span>
+                    <h2 id="research-focus-title">How are eddy size and lifetime related?</h2>
+                    <p>We investigate whether longer-lived eddies tend to grow larger and more rapidly, as observed by Escudier et al. (2016) in the Western Mediterranean Sea.</p>
+                </aside>
+            </div>
+            <dl class="welcome-data-summary" aria-label="Study context">
+                <div>
+                    <dt>Study region</dt>
+                    <dd>
+U.S. West Coast
+                    </dd>
+                </div>
+                <div>
+                    <dt>Observations</dt>
+                    <dd>
+Daily blended altimetry · 0.25° grid
+                    </dd>
+                </div>
+                <div>
+                    <dt>Detection methods</dt>
+                    <dd>
+Chelton · Nencioli · Halo
+                    </dd>
+                </div>
+            </dl>
+        </header>
+        <section class="panel"
+                 id="sla-introduction"
+                 aria-labelledby="sla-introduction-title">
+            <div class="panel-head">
+                <h2 id="sla-introduction-title">Explore the sea-level anomaly field</h2>
+                <span class="eyebrow">{% if sla_date %}{{ sla_date|date:"Y-m-d" }}{% else %}OSU blended altimetry{% endif %}</span>
+            </div>
+            <p>Sea-level anomaly (SLA) shows how sea-surface height differs from its reference mean. On the daily map, warm colours indicate positive anomalies and cool colours indicate negative anomalies. On the reference mean map, purple and blue indicate lower mean values, and green and yellow indicate higher mean values. Hover over the ocean for values in centimetres, drag to pan, and scroll or pinch to zoom across the ocean and U.S. West Coast.</p>
+            <div class="welcome-field-maps">
+                <div class="welcome-field-map">
+                    <h3>Daily sea-level anomaly · {{ sla_date|date:"Y-m-d" }}</h3>
+                    {% if sla_map_html %}
+                        <div class="interactive-map">{{ sla_map_html|safe }}</div>
+                        {% if velocity_shown %}<p class="note">Arrows: daily geostrophic velocity, sampled every second grid point along both axes. Direction shows flow; length represents 72 hours at the measured velocity (a visual scale, not a predicted trajectory). Hover over arrow origins for u, v, and speed in m/s. Toggle the velocity layer in the legend.</p>{% elif velocity_error %}<p class="note">{{ velocity_error }}</p>{% endif %}
+                    {% else %}
+                        <p class="note" role="status">{{ sla_map_error|default:"No SLA data is currently available for the introductory map." }}</p>
+                    {% endif %}
+                </div>
+                <div class="welcome-field-map">
+                    <h3>Reference mean AVISO SLA · 1993–2012</h3>
+                    {% if reference_map_html %}
+                        <div class="interactive-map">{{ reference_map_html|safe }}</div>
+                    {% else %}
+                        <p class="note" role="status">{{ reference_map_error }}</p>
+                    {% endif %}
+                </div>
+            </div>
+            <p class="note">The supplied reference file contains the 20-year (1993–2012) mean AVISO SLA field, rather than absolute mean sea-surface height. Compare its spatial pattern with the daily anomaly on the left. Both maps display centimetres. The reference map uses a sequential purple–blue–green–yellow scale spanning its actual minimum and maximum to reveal small variations in mean SLA. Its colours indicate relative mean values, rather than the sign of an anomaly. The colourbar limits differ between the maps; compare the numeric values rather than colours alone.</p>
+            <p class="note">Daily OSU blended altimetry · 0.25° grid. Reference: mean_aviso_field_1993_2012_v2.nc. Choose a method below to investigate eddies in these fields.</p>
+            <p class="note">Basemap: <a href="https://opentopomap.org" target="_blank" rel="noopener">OpenTopoMap</a> / <a href="https://www.openstreetmap.org/copyright"
+                                                                                                                           target="_blank"
+                                                                                                                           rel="noopener">OpenStreetMap</a>.</p>
+        </section>
+        <div class="welcome-method-heading" id="methods">
+            <div>
+                <span class="eyebrow">Compare approaches</span>
+                <h2>Choose a detection method</h2>
+            </div>
+        </div>
+        <div class="method-grid">
+            <article class="panel method-card">
+                <span class="eyebrow">Contour-based detection</span>
+                <h3>Chelton Method</h3>
+                <p>
+                        Identifies mesoscale eddies from closed
+                        contours of sea-level anomaly.
+                </p>
+                <div class="method-actions">
+                    <a href="{% url 'chelton_methodology' %}">Methodology</a>
+                    <a href="{% url 'chelton_detection' %}">Open Explorer</a>
+                    <a href="{% url 'chelton_tracker' %}">Open Tracker</a>
+                </div>
+            </article>
+            <article class="panel method-card">
+                <span class="eyebrow">Velocity Geometry-based detection</span>
+                <h3>Nencioli Method</h3>
+                <p>
+                        Identifies eddies by examining the geometry and organization of the horizontal velocity field, rather than relying directly on SLA contours
+                </p>
+                <div class="method-actions">
+                    <a href="{% url 'nencioli_methodology' %}">Methodology</a>
+                    <a href="{% url 'nencioli_detection' %}">Open Explorer</a>
+                    <a href="{% url 'nencioli_tracker' %}">Open Tracker</a>
+                </div>
+            </article>
+            <article class="panel method-card">
+                <span class="eyebrow">Hybrid contour and vorticity detection</span>
+                <h3>Halo Method</h3>
+                <p>
+                        Combines closed sea-height loops with negative Okubo–Weiss regions to identify rotating features.
+                </p>
+                <div class="method-actions">
+                    <a href="{% url 'halo_methodology' %}">Methodology</a>
+                    <a href="{% url 'halo_detection' %}">Open Explorer</a>
+                    <a href="{% url 'halo_tracker' %}">Open Tracker</a>
+                </div>
+            </article>
+        </div>
+        <section class="panel welcome-comparison-card"
+                 id="compare-methods"
+                 aria-labelledby="compare-methods-title">
+            <div>
+                <span class="eyebrow">Shared input · Three perspectives</span>
+                <h2 id="compare-methods-title">Run all three methods</h2>
+                <p>Run Chelton, Nencioli, and Halo on the same daily field or track them over a shared period. Compare detection boundaries, counts, and sizes, then explore observed spans and radius evolution.</p>
+                <ul class="comparison-highlights" aria-label="Comparison features">
+                    <li>Shared daily input</li>
+                    <li>Comparable statistics</li>
+                    <li>Combined interactive plot</li>
+                </ul>
+            </div>
+            <div class="method-actions welcome-comparison-actions">
+                <a href="{% url 'comparison_methodology' %}">Methodology</a>
+                <a class="button-link" href="{% url 'comparison' %}">Open comparison →</a>
+            </div>
+        </section>
+        <section class="panel welcome-reproduction-card"
+                 id="reproduce-results"
+                 aria-labelledby="reproduce-results-title">
+            <div>
+                <span class="eyebrow">Reproducible research</span>
+                <h2 id="reproduce-results-title">Reproduce the results</h2>
+                <p>Follow the setup, data preparation, and numerical workflow for the 1993–2012 analysis. Find the exact detection and tracking settings, commands for Figures 7 and 8, and checks against the saved results.</p>
+            </div>
+            <a class="button-link" href="{% url 'reproduction' %}">Open reproduction guide →</a>
+        </section>
+        <footer>
+                An exploratory implementation for studying and testing
+                            mesoscale eddy detection.
+        </footer>
+    </main>
+{% endblock %}

@@ -1,0 +1,346 @@
+{% extends "explorer/method_base.html" %}
+{% load static %}
+
+{% block title %}
+    Nencioli Eddy Explorer
+{% endblock %}
+
+{% block brand %}
+    Nencioli Explorer
+{% endblock %}
+
+{% block extra_css %}
+    <link rel="stylesheet" href="{% static 'explorer/nencioli.css' %}?v=7">
+{% endblock %}
+
+{% block form_content %}
+    <div class="form-field">
+        {{ form.detection_mode.as_field_group }}
+    </div>
+    <div class="form-field single-control">
+        {{ form.a.as_field_group }}
+    </div>
+    <div class="form-field single-control">
+        {{ form.b.as_field_group }}
+    </div>
+    <div class="date-row range-control">
+        <div class="form-field">
+            {{ form.a_min.as_field_group }}
+        </div>
+        <div class="form-field">
+            {{ form.a_max.as_field_group }}
+        </div>
+    </div>
+    <div class="date-row range-control">
+        <div class="form-field">
+            {{ form.b_min.as_field_group }}
+        </div>
+        <div class="form-field">
+            {{ form.b_max.as_field_group }}
+        </div>
+    </div>
+    <p class="note">a tests velocity growth and circulation. b sets the local-minimum search window. Both are measured in grid cells.</p>
+    <div class="parameter-presets">
+        <button type="button"
+                class="secondary-button"
+                data-parameters="4,3">Paper settings: a=4, b=3</button>
+        <button type="button"
+                class="secondary-button"
+                data-parameters="2,2">Try a smaller neighborhood: a=2, b=2</button>
+    </div>
+{% endblock %}
+
+{% block page_title %}
+    Investigate Nencioli eddy detection
+{% endblock %}
+
+{% block page_introduction %}
+    Follow the velocity geometry from a sign change to a detected center and its boundary. Inspect failed checks, compare search radii, and understand why results on this 0.25° altimetry grid can differ from the paper.
+{% endblock %}
+
+{% block page_content %}
+    <div class="nencioli-results">
+        <nav class="result-nav" aria-label="Analysis sections">
+            <a href="#overview">Overview</a>
+            <a href="{% url 'nencioli_tracker' %}">Track eddies across days →</a>
+            {% if diagnostic_summary %}
+                <a href="#accepted">Accepted boundaries</a>
+                <a href="#diagnostics">Diagnostics</a>
+                <a href="#inspector">Candidate inspector</a>
+            {% endif %}
+            <a href="#paper-comparison">Compare with the paper</a>
+        </nav>
+        {% if diagnostic_summary %}
+            <section class="stats" aria-label="Detection summary">
+                <div class="stat">
+                    <span>Centers passing all four checks</span>
+                    <strong>
+                        {{ diagnostic_summary.centers }}
+                    </strong>
+                </div>
+                <div class="stat accepted">
+                    <span>Accepted boundaries</span>
+                    <strong>
+                        {{ diagnostic_summary.accepted }}
+                    </strong>
+                </div>
+                <div class="stat rejected">
+                    <span>Rejected candidate searches</span>
+                    <strong>
+                        {{ diagnostic_summary.rejected }}
+                    </strong>
+                </div>
+            </section>
+            <p class="note">{{ diagnostic_summary.total }} candidate searches after EW pair selection · {{ diagnostic_summary.duplicates }} duplicate searches · {{ diagnostic_summary.circular }} circular estimates. A center can pass all four checks and still have no accepted boundary.</p>
+            <section class="panel" id="overview" aria-labelledby="overview-title">
+                <div class="panel-head">
+                    <h2 id="overview-title">Detection overview</h2>
+                    <span class="eyebrow">Velocity geometry</span>
+                </div>
+                <p>{{ run_settings.day|date:"Y-m-d" }} · a={{ run_settings.a }}, b={{ run_settings.b }} · SLA shown for context; detection uses velocity.</p>
+                {% if not diagnostic_summary.centers %}
+                    <p class="explanation">No center passes all four constraints. Open the diagnostics to see the first failures, or use a parameter sweep to compare neighborhoods.</p>
+                {% endif %}
+                <div class="interactive-map">
+                    {{ plot_image_html|safe }}
+                </div>
+                <p>Hover for a candidate’s decision; click its marker to inspect. Toggle the legend to show candidates rejected before center detection. Dashed boundaries are estimated circles. Velocity arrows use the same settings as the welcome page: every second grid point along both axes, with length scaled to 72 hours at the measured velocity for visibility (not a predicted trajectory).</p>
+                <a href="data:image/png;base64,{{ plot_image }}"
+                   download="nencioli_detection_{{ run_settings.day|date:'Y-m-d' }}.png">Download detection map</a>
+            </section>
+            <section class="panel" id="accepted" aria-labelledby="accepted-title">
+                <div class="panel-head">
+                    <h2 id="accepted-title">Accepted boundaries</h2>
+                    <span class="eyebrow">{{ diagnostic_summary.accepted }} results</span>
+                </div>
+                <p>IDs match the candidate table and diagnostic map. Radii are mean center-to-contour distances, not diameters.</p>
+                <div class="table-scroll">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Candidate</th>
+                                <th>Location [°N, °E]</th>
+                                <th>Rotation</th>
+                                <th>Radius [km]</th>
+                                <th>Boundary source</th>
+                                <th>Local region</th>
+                                <th>Investigate</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for eddy in accepted_eddies %}
+                                <tr>
+                                    <td>{{ eddy.id }}</td>
+                                    <td>{{ eddy.latitude|floatformat:3 }}, {{ eddy.longitude|floatformat:3 }}</td>
+                                    <td>{{ eddy.rotation }}</td>
+                                    <td>{{ eddy.radius_km|floatformat:2 }}</td>
+                                    <td>{{ eddy.source_label }}</td>
+                                    <td>{% if eddy.land_limited %}Land / missing data{% elif eddy.boundary_limited %}Domain edge{% else %}Not limited{% endif %}</td>
+                                    <td>
+                                        <button type="submit"
+                                                form="analysis-form"
+                                                name="inspect_candidate"
+                                                value="{{ eddy.id }}"
+                                                class="table-button">Inspect {{ eddy.id }}</button>
+                                    </td>
+                                </tr>
+                            {% empty %}
+                                <tr>
+                                    <td colspan="7" class="empty-table-cell">No boundaries passed the implemented criteria. Inspect rejected candidates below.</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+            <h2 class="section-heading">Inspect the selection decisions</h2>
+            <details id="selection-stages" open>
+                <summary>Step 1–4: Center detection and boundary selection</summary>
+                <div class="table-scroll">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Check passed</th>
+                                <th>Count</th>
+                                <th>What is counted</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for stage in stages %}
+                                <tr>
+                                    <td>{{ stage.label }}</td>
+                                    <td>{{ stage.count }}</td>
+                                    <td>{{ stage.unit }}</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <p>Criterion 1 selects adjacent east–west pairs. Each pair supplies two independent candidate searches. Later searches may converge on the same center, so pair counts, search counts, and unique-center counts have different meanings.</p>
+            </details>
+            <details id="diagnostics" open>
+                <summary>Candidate diagnostics and rejection reasons</summary>
+                <p>Each rejected search is counted under its first failed check; subsequent checks were not evaluated. Duplicate searches are listed separately and do not represent additional eddies.</p>
+                <div class="table-scroll">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>First failed check</th>
+                                <th>Candidate searches</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for reason in diagnostic_summary.reasons %}
+                                <tr>
+                                    <td>{{ reason.label }}</td>
+                                    <td>{{ reason.count }}</td>
+                                </tr>
+                            {% empty %}
+                                <tr>
+                                    <td colspan="2"
+                                        class="empty-table-cell">No rejected candidate searches.</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <div class="diagnostic-controls">
+                    <div>
+                        <label for="candidate-filter">Status</label>
+                        <select id="candidate-filter">
+                            <option value="all">All candidates</option>
+                            <option value="accepted">Accepted boundary</option>
+                            <option value="rejected">Rejected search</option>
+                            <option value="duplicate">Duplicate center</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="reason-filter">First decision</label>
+                        <select id="reason-filter">
+                            <option value="all">All decisions</option>
+                            {% for reason in diagnostic_summary.reasons %}
+                                <option value="{{ reason.key }}">{{ reason.label }}</option>
+                            {% endfor %}
+                            <option value="accepted">Boundary accepted</option>
+                            <option value="duplicate_center">Already detected center</option>
+                        </select>
+                    </div>
+                    <button type="button"
+                            id="download-candidates"
+                            class="secondary-button">Download candidate CSV</button>
+                </div>
+                <p class="note" id="candidate-count" role="status" aria-live="polite">
+                </p>
+                <div class="table-scroll candidate-scroll">
+                    <table id="candidate-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Status</th>
+                                <th>First decision</th>
+                                <th>Location [°N, °E]</th>
+                                <th>Speed [m/s]</th>
+                                <th>Investigate</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for candidate in diagnostics %}
+                                <tr data-status="{{ candidate.status }}"
+                                    data-reason="{{ candidate.reason }}">
+                                    <td>{{ candidate.id }}</td>
+                                    <td><span class="badge {{ candidate.status }}">{{ candidate.status|capfirst }}</span></td>
+                                    <td title="{{ candidate.explanation }}">{{ candidate.reason_label }}</td>
+                                    <td>{{ candidate.latitude|floatformat:3 }}, {{ candidate.longitude|floatformat:3 }}</td>
+                                    <td>{{ candidate.speed|floatformat:4 }}</td>
+                                    <td>
+                                        <button type="submit"
+                                                form="analysis-form"
+                                                name="inspect_candidate"
+                                                value="{{ candidate.id }}"
+                                                class="table-button">Inspect {{ candidate.id }}</button>
+                                    </td>
+                                </tr>
+                            {% empty %}
+                                <tr>
+                                    <td colspan="6" class="empty-table-cell">No EW pairs passed criterion 1; no candidate searches were started.</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <p id="filter-empty" hidden>No candidates match these filters.</p>
+                <p>Locations show the refined minimum where one was found; otherwise they show the original pair member. Speeds are measured at the displayed location.</p>
+                <img src="data:image/png;base64,{{ diagnostics_plot }}"
+                     alt="Velocity field with accepted and rejected candidates; detected centers labelled by candidate ID">
+                <a href="data:image/png;base64,{{ diagnostics_plot }}"
+                   download="nencioli_diagnostics_{{ run_settings.day|date:'Y-m-d' }}.png">Download diagnostic map</a>
+            </details>
+            {% include "explorer/nencioli/inspector.html" %}
+            {{ candidate_export|json_script:"nencioli-candidate-data" }}
+        {% elif sweep_parameter_heatmap_html %}
+            <section class="panel" id="overview" aria-labelledby="sweep-title">
+                <div class="panel-head">
+                    <h2 id="sweep-title">Parameter sensitivity</h2>
+                    <span class="eyebrow">{{ sweep_day|date:"Y-m-d" }}</span>
+                </div>
+                <p>Counts show centers passing the four velocity constraints. Boundary selection is run when you inspect a configuration. More centers do not necessarily mean a better result.</p>
+                <div class="interactive-map">
+                    {{ sweep_parameter_heatmap_html|safe }}
+                </div>
+                <p>Click a heatmap cell or inspect a row to investigate that configuration.</p>
+                <button type="button"
+                        id="download-sweep"
+                        class="secondary-button">Download sweep CSV</button>
+                <div class="table-scroll">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>a [cells]</th>
+                                <th>b [cells]</th>
+                                <th>Detected centers</th>
+                                <th>Investigate</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in sweep_rows %}
+                                <tr>
+                                    <td>{{ row.a }}</td>
+                                    <td>{{ row.b }}</td>
+                                    <td>{{ row.n_eddies }}</td>
+                                    <td>
+                                        <button type="submit"
+                                                form="analysis-form"
+                                                name="inspect_configuration"
+                                                value="{{ row.a }},{{ row.b }}"
+                                                class="table-button">Inspect a={{ row.a }}, b={{ row.b }}</button>
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+            {{ sweep_export|json_script:"nencioli-sweep-data" }}
+        {% else %}
+            <section class="empty" id="overview">
+                <span class="eyebrow">Start exploring</span>
+                <h2>From velocity vectors to ocean eddies</h2>
+                <p>Select a date and search radii, or run a parameter sweep. Every candidate decision can then be inspected.</p>
+            </section>
+        {% endif %}
+        {% include "explorer/nencioli/paper_comparison.html" %}
+    </div>
+{% endblock %}
+
+{% block footer %}
+    Nencioli-based velocity geometry · Four center constraints · Inspect decisions before interpreting counts
+{% endblock %}
+
+{% block extra_js %}
+    <span id="nencioli-page-state"
+          hidden
+          data-dates-url="{% url 'available_dates' %}"
+          data-selected="{% if selected_candidate %}true{% endif %}"
+          data-date="{% if run_settings %}{{ run_settings.day|date:'Y-m-d' }}{% else %}{{ sweep_day|date:'Y-m-d' }}{% endif %}"></span>
+    <script src="{% static 'explorer/nencioli.js' %}" defer></script>
+{% endblock %}

@@ -1,0 +1,34 @@
+<section class="panel" id="inspector" aria-labelledby="inspector-title">
+    <div class="panel-head">
+        <h2 id="inspector-title">Inspect a candidate</h2>
+        <span class="eyebrow">Trace each check</span>
+    </div>
+    <p>Click a map marker or table button, or enter an ID. IDs apply only to the current date and parameter settings.</p>
+    <div class="inspector-controls">
+        <div>{{ form.candidate_id.as_field_group }}</div>
+        <button type="submit" form="analysis-form">Inspect candidate</button>
+    </div>
+    {% if selected_candidate %}
+        <h3>Candidate {{ selected_candidate.id }} · {{ selected_candidate.status|capfirst }}</h3>
+        <p class="explanation">{{ selected_candidate.explanation }}</p>
+        <p>Contour level {{ selected_candidate.level_cm|floatformat:2 }} cm · maximum pair distance {{ selected_candidate.diameter_km|floatformat:2 }} km · polygon area {{ selected_candidate.area_cells|floatformat:2 }} grid cells.</p>
+        <div class="table-scroll">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Check</th>
+                        <th>Requirement</th>
+                        <th>Evidence</th>
+                        <th>Outcome</th>
+                    </tr>
+                </thead>
+                <tbody>{% for check in selected_candidate.check_rows %}<tr><td>{{ check.label }}</td><td>{{ check.requirement }}</td><td>{{ check.value }}</td><td>{{ check.outcome }}</td></tr>{% endfor %}</tbody>
+            </table>
+        </div>
+        <img src="data:image/png;base64,{{ candidate_image }}"
+             alt="Candidate {{ selected_candidate.id }} close-up with its contour highlighted in orange over SLA and negative-W shading">
+        <p>Core IDs {{ selected_candidate.region_ids|join:", "|default:"—" }} refer to enclosed minimum-W representatives, not necessarily fully enclosed negative-W regions. The map marker is the mean contour-vertex location, not an estimated dynamical center.</p>
+        <a href="data:image/png;base64,{{ candidate_image }}"
+           download="halo_candidate_{{ selected_candidate.id }}_{{ run_settings.day|date:'Y-m-d' }}.png">Download candidate investigation</a>
+    {% else %}<p>Select a candidate to see its contour close-up, decision explanation, and selection checks.</p>{% endif %}
+</section>

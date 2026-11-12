@@ -1,0 +1,5 @@
+{
+  "catalogue": "observations.csv.gz",
+  "min_count": 20,
+  "include_censored_cycles": false
+}

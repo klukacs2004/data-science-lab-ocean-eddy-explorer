@@ -1,0 +1,936 @@
+{% extends "explorer/methodology_base.html" %}
+
+{% block title %}
+    Chelton Methodology · Ocean Eddy Explorer
+{% endblock %}
+
+{% block method_title %}
+    Chelton-Based Eddy Detection and Tracking
+{% endblock %}
+
+{% block method_description %}
+    SSH contours, acceptance criteria, amplitude and scale definitions, and daily tracking with constrained one-to-one association.
+{% endblock %}
+
+{% block methodology_toc %}
+    <h3>Contents</h3>
+    <a href="#introduction">1. Method and scope</a>
+    <a href="#sla">2. SSH geometry and circulation</a>
+    <details class="toc-group" open>
+        <summary>3. Identifying candidate regions</summary>
+        <div class="toc-subsections">
+            <a href="#preprocessing">3.1 Background removal</a>
+            <a href="#threshold-detection">3.2 Polarity and thresholding</a>
+            <a href="#candidate-validation">3.3 Connectivity and interior pixels</a>
+            <a href="#acceptance-criteria">3.4 Five acceptance criteria</a>
+            <a href="#threshold-scanning">3.5 Full threshold scan</a>
+        </div>
+    </details>
+    <details class="toc-group">
+        <summary>4. Measuring accepted patches</summary>
+        <div class="toc-subsections">
+            <a href="#amplitude">4.1 Perimeter mean and amplitude</a>
+            <a href="#size">4.2 Area and compactness</a>
+            <a href="#scale-definitions">4.3 The paper's radius definitions</a>
+        </div>
+    </details>
+    <a href="#diagnostics">5. Interpreting diagnostics</a>
+    <details class="toc-group">
+        <summary>6. Tracking and nonlinearity</summary>
+        <div class="toc-subsections">
+            <a href="#tracking">6. Tracking overview</a>
+            <a href="#tracking-inputs">6.1 Daily inputs and measurements</a>
+            <a href="#tracking-search">6.2 Asymmetric search ellipse</a>
+            <a href="#tracking-assignment">6.3 Compatibility and assignment</a>
+            <a href="#tracking-lifetime">6.4 Controls and lifetime filtering</a>
+            <a href="#tracking-interpretation">6.5 Interpreting trajectories</a>
+            <a href="#tracking-nonlinearity">6.6 Paper comparison and nonlinearity</a>
+        </div>
+    </details>
+    <details class="toc-group">
+        <summary>7. Differences and limitations</summary>
+        <div class="toc-subsections">
+            <a href="#paper-differences">Comparison with the paper</a>
+            <a href="#boundary-bias">Boundary and amplitude uncertainty</a>
+            <a href="#sensitivity">Sensitivity and validation</a>
+        </div>
+    </details>
+    <a href="{% url 'chelton_detection' %}">Open the Chelton explorer →</a>
+    <a href="{% url 'chelton_tracker' %}">Open the Tracking Explorer →</a>
+{% endblock %}
+
+{% block methodology_content %}
+    <section id="introduction">
+        <h2>1. Method and scope</h2>
+        <p>
+The SSH-based method of Chelton et al. identifies compact regions enclosed
+        by sea-surface-height contours. It avoids estimating eddy boundaries from
+        velocity derivatives, which can amplify noise. Candidate regions must pass
+        geometric and amplitude conditions before they are retained.
+        </p>
+        <p>
+Reference: <a href="https://doi.org/10.1016/j.pocean.2011.01.002">Chelton,
+        Schlax and Samelson (2011), Global observations of nonlinear mesoscale
+        eddies</a>, Progress in Oceanography 91, 167–216. Appendix B.2 defines
+        identification, B.3 amplitude and scales, B.4 tracking, and Appendix C
+        discusses boundary and amplitude bias.
+        </p>
+        <p>
+The detection explorer implements single-map identification and selected
+        measurements from Appendix B.2–B.3. The separate tracking explorer links
+        these daily detections using the regional adaptation in section 6.
+        Neither reproduces the paper's full tracked catalogue, speed-based scale,
+        or nonlinearity analysis. An accepted patch is a snapshot detection;
+        persistence is investigated separately through temporal association.
+        </p>
+        <p>
+The input here is daily OSU blended altimetry over the U.S. West Coast on
+        a 0.25° grid. The paper analyzed global 0.25° AVISO Reference Series SSH
+        maps sampled every seven days over 1992–2008. Equal nominal grid spacing
+        does not guarantee equal effective resolution or identical detections.
+        </p>
+    </section>
+    <section id="sla">
+        <h2>2. SSH geometry and circulation</h2>
+        <p>Sea-level anomaly is SSH relative to a reference mean:</p>
+        <div class="equation">
+            \[
+                        \eta'(x,y,t)=\eta(x,y,t)-\overline{\eta}(x,y).
+                        \]
+        </div>
+        <p>
+For an anomaly field in approximate geostrophic balance, the eastward and
+        northward velocity anomalies satisfy
+        </p>
+        <div class="equation">
+            \[
+                        u'_g=-\frac{g}{f}\frac{\partial\eta'}{\partial y},\qquad
+                        v'_g=\frac{g}{f}\frac{\partial\eta'}{\partial x},\qquad
+                        f=2\Omega\sin\phi.
+                        \]
+        </div>
+        <p>
+Consequently, \(\mathbf v'_g\cdot\nabla\eta'=0\): geostrophic velocity
+        anomalies are tangent to SLA contours. This motivates using closed SSH
+        contours as candidate perimeters. The snapshot detector does not need to
+        compute these derivatives or apply an Okubo–Weiss threshold.
+        </p>
+        <p>
+A concave-down local SSH maximum indicates anticyclonic circulation in the
+        Northern Hemisphere; a concave-up minimum indicates cyclonic circulation.
+        Clockwise versus counterclockwise rotation reverses in the Southern
+        Hemisphere. The absolute sign of SLA is not the polarity: a local maximum
+        can lie entirely below zero on a negative background.
+        </p>
+        <p>
+These equations describe velocity anomalies associated with the chosen
+        field. Total geostrophic currents also depend on the background dynamic
+        sea-surface height. Closed anomaly contours alone do not establish material
+        trapping or long-term dynamical coherence.
+        </p>
+    </section>
+    <section id="algorithm">
+        <h2>3. Identifying candidate regions</h2>
+        <p>
+Let \(h\) denote the field actually used for detection, in metres. It is the
+        processed anomaly field when background removal is selected, and the input
+        SLA when no additional filtering is selected. Thresholds displayed in
+        centimetres are converted to metres before evaluation.
+        </p>
+        <h3 id="preprocessing">3.1 Background removal and its physical scale</h3>
+        <p>
+Appendix B.2 uses spatial high-pass filtering to attenuate coherent
+        large-scale signals, with cutoff wavelengths of 20° longitude by 10°
+        latitude. This is distinct from the smoothing already present in the
+        mapped altimeter product.
+        </p>
+        <p>
+The explorer offers a custom Gaussian background subtraction, a Gaussian
+        approximation calibrated to those stated cutoff scales, and no additional
+        filtering. For the Gaussian options, the background and detection field are
+        </p>
+        <div class="equation">
+            \[
+                        G(\xi,\zeta)=\frac{1}{2\pi\sigma_\lambda\sigma_\phi}
+                        \exp\!\left[-\frac12\left(
+                            \frac{\xi^2}{\sigma_\lambda^2}+\frac{\zeta^2}{\sigma_\phi^2}
+                        \right)\right],
+                        \]
+        </div>
+        <div class="equation">
+            \[
+                        b=\frac{G*(M\eta')}{G*M},\qquad h=\eta'-b.
+                        \]
+        </div>
+        <p>
+Here \(M\) is one at valid ocean pixels and zero elsewhere. The numerator
+        uses zero-filled invalid pixels; division normalizes by the valid weight.
+        Missing pixels remain missing, and division is performed only where the
+        denominator is sufficiently large. Land is not treated as a physical
+        zero-SLA observation.
+        </p>
+        <p>
+For an ideal Gaussian on an unbounded uniform grid, the axial high-pass
+        response and half-power calibration are
+        </p>
+        <div class="equation">
+            \[
+                        H(k)=1-\exp(-2\pi^2\sigma^2k^2),\qquad
+                        |H(1/\lambda_c)|^2=\frac12,
+                        \]
+        </div>
+        <div class="equation">
+            \[
+                        \sigma=\frac{\lambda_c}{2\pi}
+                            \sqrt{-2\ln\!\left(1-\frac{1}{\sqrt2}\right)}.
+                        \]
+        </div>
+        <p>
+Wavelength and Gaussian scale must use consistent coordinate units. On
+        this 0.25° grid, the default custom \(\sigma=(4,4)\) cells corresponds
+        to one degree of Gaussian standard deviation per axis and ideal high-pass
+        half-power wavelengths of about 4.01° × 4.01°. The paper-scale Gaussian
+        option instead uses approximately 19.95 longitude cells and 9.98 latitude
+        cells to match 20° × 10° axial cutoff scales.
+        </p>
+        <p>
+            <strong>The Gaussian option is an approximation.</strong> Matching the
+        reported cutoff wavelengths does not verify the paper's original filter
+        kernel. The finite regional domain, coastlines, and mask normalization
+        modify the response from the ideal calculation. The explorer therefore
+        compares filter choices on the same date rather than presenting one as
+        an exact reproduction of the global analysis.
+        </p>
+        <h3 id="threshold-detection">3.2 Polarity and threshold selection</h3>
+        <p>
+At threshold \(T\), maximum-seeking and minimum-seeking pixels are selected
+        separately from the currently available finite pixels \(V\):
+        </p>
+        <div class="equation">
+            \[
+                        \begin{aligned}
+                        \Omega_{\max}(T;V)&amp;=\{p\in V:h(p)\gt T\},\\
+                        \Omega_{\min}(T;V)&amp;=\{p\in V:h(p)\lt T\}.
+                        \end{aligned}
+                        \]
+        </div>
+        <p>
+Each connected component of the appropriate set becomes a candidate.
+        The comparison is strict, so a pixel exactly equal to the threshold is
+        excluded. Both polarities are tested at thresholds of either sign, as
+        in the paper's Fig. B1. Selecting a negative threshold does not switch
+        a maximum search into a minimum search.
+        </p>
+        <p>
+At a single threshold, the page shows that level's candidate geometry.
+        The full scan searches for the outermost acceptable regions over many
+        levels. These are different analysis modes, so their detection counts
+        need not agree.
+        </p>
+        <h3 id="candidate-validation">3.3 Connectivity, interior, and perimeter pixels</h3>
+        <p>
+Two pixels are connected if they share a north, south, east, or west edge;
+        diagonal contact alone is insufficient. For grid point \((i,j)\), define
+        </p>
+        <div class="equation">
+            \[
+                        N_4(i,j)=\{(i-1,j),(i+1,j),(i,j-1),(i,j+1)\}.
+                        \]
+        </div>
+        <p>
+For a candidate component \(\Omega\), interior pixels have all four nearest
+        neighbors inside the same region. Perimeter pixels are the remaining
+        candidate pixels:
+        </p>
+        <div class="equation">
+            \[
+                        I(\Omega)=\{p\in\Omega:N_4(p)\subseteq\Omega\},\qquad
+                        P(\Omega)=\Omega\setminus I(\Omega).
+                        \]
+        </div>
+        <p>
+The region must also be simply connected: it cannot enclose holes outside
+        the selected region. The same four-neighbor definition determines which
+        pixels can contain qualifying extrema, which pixels enter the perimeter
+        mean, and which accepted pixels are retired during scanning.
+        </p>
+        <p>
+A qualifying maximum must be interior and strictly exceed each neighbor;
+        a minimum must be interior and strictly fall below each neighbor:
+        </p>
+        <div class="equation">
+            \[
+                        \begin{aligned}
+                        p_{\max}\in I(\Omega):&amp;\quad
+                            h(p_{\max})\gt h(q)\quad\forall q\in N_4(p_{\max}),\\
+                        p_{\min}\in I(\Omega):&amp;\quad
+                            h(p_{\min})\lt h(q)\quad\forall q\in N_4(p_{\min}).
+                        \end{aligned}
+                        \]
+        </div>
+        <p>
+A peak lying on the perimeter does not qualify. Neither does a flat
+        plateau without a strict four-neighbor extremum. Conversely, several
+        qualifying extrema are allowed within one accepted patch. The paper
+        abandoned automatic splitting because it introduced undesirable changes
+        in tracked eddy properties; this implementation likewise does not split
+        a region solely because it has multiple extrema.
+        </p>
+        <h3 id="acceptance-criteria">3.4 The paper's five acceptance criteria</h3>
+        <p>
+Appendix B.2 defines an eddy as a simply connected set of pixels satisfying
+        all five conditions below. The numerical bounds are part of that
+        identification procedure, not evidence by themselves of a nonlinear eddy.
+        </p>
+        <div class="table-scroll">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Criterion</th>
+                        <th>Requirement</th>
+                        <th>Purpose</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>1 · Threshold</td>
+                        <td>Every pixel is above \(T\) for a maximum search or below \(T\) for a minimum search.</td>
+                        <td>Defines a connected SSH region of the chosen polarity.</td>
+                    </tr>
+                    <tr>
+                        <td>2 · Pixel count</td>
+                        <td>\(8\leq |\Omega|\lt 1000\).</td>
+                        <td>Excludes undersized and excessively large connected regions.</td>
+                    </tr>
+                    <tr>
+                        <td>3 · Interior extremum</td>
+                        <td>At least one qualifying local maximum or minimum.</td>
+                        <td>Requires a core inside the region rather than a perimeter peak.</td>
+                    </tr>
+                    <tr>
+                        <td>4 · Amplitude</td>
+                        <td>\(A\geq 0.01\) m.</td>
+                        <td>Retains features with amplitude of at least 1 cm.</td>
+                    </tr>
+                    <tr>
+                        <td>5 · Compactness</td>
+                        <td>\(D_{\max}\lt D_{\mathrm{lim}}\).</td>
+                        <td>Limits elongated features and broad outer flanges.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <p>
+The 8-pixel minimum was motivated by the effective smoothing of the paper's
+        0.25° AVISO product: an approximately 0.4°-radius circle occupies about
+        eight such pixels. This rationale concerns the input mapping resolution,
+        not the separate 20° × 10° background-removal step. The same nominal pixel
+        count does not impose a constant physical area at all latitudes.
+        </p>
+        <p>
+The maximum distance is calculated over every pair of candidate pixel
+        centers using great-circle distances:
+        </p>
+        <div class="equation">
+            \[
+                        D_{\max}=\max_{p,q\in\Omega}d_{\mathrm{gc}}(p,q).
+                        \]
+        </div>
+        <p>
+The paper uses 400 km poleward of 25° latitude, increasing linearly to
+        1200 km at the equator. In this explorer, that rule is evaluated at the
+        candidate's mean pixel latitude \(\bar\phi\):
+        </p>
+        <div class="equation">
+            \[
+                        D_{\mathrm{lim}}(\bar\phi)=
+                        \begin{cases}
+                            400\ \mathrm{km}, &amp; |\bar\phi|\geq 25^\circ,\\
+                            \left[1200-800\dfrac{|\bar\phi|}{25^\circ}\right]\mathrm{km},
+                                &amp; |\bar\phi|\lt 25^\circ.
+                        \end{cases}
+                        \]
+        </div>
+        <p>
+All current U.S. West Coast candidates use the 400 km limit. Equality
+        fails the distance test, while an amplitude exactly 1 cm passes its
+        lower bound. The implementation computes pair distances in bounded
+        vectorized blocks; it does not replace the all-pairs criterion with
+        a bounding box or an area-based diameter.
+        </p>
+        <p>
+Additional regional data guards reject candidates touching the cropped
+        map boundary or adjacent missing pixels, because their closed SSH
+        contour cannot be established from the available field. These are
+        explicit implementation choices beyond the five numbered conditions.
+        </p>
+        <h3 id="threshold-scanning">3.5 Full threshold scanning and pixel retirement</h3>
+        <p>
+To avoid selecting one fixed SSH level, Appendix B.2 scans the two
+        polarities independently. The explorer follows these directions:
+        </p>
+        <p>
+The paper describes this as threshold-free identification because a
+        single SSH contour level need not be chosen. The method still has
+        explicit design choices, including the 1 cm step, amplitude floor,
+        pixel-count bounds, and compactness limit.
+        </p>
+        <div class="table-scroll">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Search</th>
+                        <th>Threshold sequence [cm]</th>
+                        <th>Selected values</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Maximum / concave down</td>
+                        <td>−100, −99, …, +100</td>
+                        <td>\(h\gt T\)</td>
+                    </tr>
+                    <tr>
+                        <td>Minimum / concave up</td>
+                        <td>+100, +99, …, −100</td>
+                        <td>\(h\lt T\)</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <p>
+Each polarity starts with its own availability mask containing all finite
+        pixels. At each threshold, connected candidates are evaluated. When a
+        region is accepted, only its interior pixels are removed from subsequent
+        searches of that polarity:
+        </p>
+        <div class="equation">
+            \[
+                        V_{n+1}=V_n\setminus
+                            \bigcup_{\Omega\in\mathcal E_n}I(\Omega),
+                        \]
+        </div>
+        <p>
+where \(\mathcal E_n\) is the set of regions accepted at threshold step
+        \(n\). Perimeter pixels remain available; the other polarity's mask is
+        unchanged. This order aims to retain the largest acceptable regions
+        encountered before stricter levels isolate smaller interiors.
+        </p>
+        <p>
+The scan uses a 1 cm increment. The paper found that reducing the step
+        could retain broad, flat, irregular outer flanges rather than improving
+        compact eddy boundaries. The 1 cm increment is therefore a deliberate
+        compromise, not a claim that every physical eddy boundary is known
+        to centimetre accuracy.
+        </p>
+        <p>
+Candidate counts across a scan include separate connected-region decisions
+        at different thresholds. They are not counts of distinct physical eddies.
+        Each candidate receives a unique scan ID, and accepted results preserve
+        that ID in maps, tables, exports, and inspection.
+        </p>
+    </section>
+    <section id="measurements">
+        <h2>4. Measuring accepted patches</h2>
+        <h3 id="amplitude">4.1 Perimeter mean and eddy amplitude</h3>
+        <p>
+Appendix B.3 estimates the basal height \(h_0\) as the arithmetic mean
+        of SSH over the perimeter pixels, whose values need not be identical
+        on a discretized grid:
+        </p>
+        <div class="equation">
+            \[
+                        h_0=\frac{1}{|P(\Omega)|}\sum_{p\in P(\Omega)}h(p),\qquad
+                        h_{\max}=\max_{p\in\Omega}h(p),\qquad
+                        h_{\min}=\min_{p\in\Omega}h(p).
+                        \]
+        </div>
+        <div class="equation">
+            \[
+                        A=
+                        \begin{cases}
+                            h_{\max}-h_0, &amp; \text{maximum / concave down},\\
+                            h_0-h_{\min}, &amp; \text{minimum / concave up}.
+                        \end{cases}
+                        \]
+        </div>
+        <p>
+Amplitude is positive for either polarity and is tested against 1 cm.
+        The threshold \(T\) is not substituted for \(h_0\). On a sloping SSH
+        surface, perimeter pixels can differ appreciably from the threshold.
+        </p>
+        <div class="table-scroll">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Illustrative feature</th>
+                        <th>Threshold</th>
+                        <th>Perimeter mean</th>
+                        <th>Extreme SSH</th>
+                        <th>Amplitude</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Maximum on a negative background</td>
+                        <td>−13 cm</td>
+                        <td>−12 cm</td>
+                        <td>−4 cm</td>
+                        <td>8 cm</td>
+                    </tr>
+                    <tr>
+                        <td>Minimum on a positive background</td>
+                        <td>+13 cm</td>
+                        <td>+12 cm</td>
+                        <td>+4 cm</td>
+                        <td>8 cm</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <p>
+These are explanatory values, not observations from the dataset. They
+        illustrate why neither the sign of SSH nor the threshold itself defines
+        amplitude or polarity.
+        </p>
+        <h3 id="size">4.2 Geographic area, effective radius, and compactness</h3>
+        <p>
+The explorer sums spherical cell areas to estimate the patch area. With
+        angular cell edges in radians and \(R_\oplus=6371\) km,
+        </p>
+        <div class="equation">
+            \[
+                        a_{ij}=R_\oplus^2(\lambda_{i+1/2}-\lambda_{i-1/2})
+                            \left[\sin\phi_{j+1/2}-\sin\phi_{j-1/2}\right],\qquad
+                        \mathcal A=\sum_{(i,j)\in\Omega}a_{ij},
+                        \]
+        </div>
+        <div class="equation">
+            \[
+                        L_{\mathrm{eff}}=\sqrt{\frac{\mathcal A}{\pi}}.
+                        \]
+        </div>
+        <p>
+Cell edges are inferred from coordinate midpoints, with the outside edges
+        extrapolated by half a grid spacing. Detection arrays use longitude ×
+        latitude ordering; plotting transposes them. The resulting
+        \(L_{\mathrm{eff}}\) is an area-equivalent radius in kilometres.
+        </p>
+        <p>Great-circle pair distances use the haversine expression</p>
+        <div class="equation">
+            \[
+                        \begin{aligned}
+                        z&amp;=\sin^2\!\left(\frac{\phi_2-\phi_1}{2}\right)
+                            +\cos\phi_1\cos\phi_2
+                            \sin^2\!\left(\frac{\lambda_2-\lambda_1}{2}\right),\\
+                        d_{\mathrm{gc}}&amp;=2R_\oplus\arcsin\sqrt z.
+                        \end{aligned}
+                        \]
+        </div>
+        <p>
+The maximum of these distances is \(D_{\max}\), a compactness measure.
+        It is generally not \(2L_{\mathrm{eff}}\). An elongated patch can have
+        a modest area-equivalent radius yet fail the maximum-pair-distance
+        criterion.
+        </p>
+        <h3 id="scale-definitions">4.3 The paper's different radius definitions</h3>
+        <p>
+Appendix B.3 distinguishes several scales. Background-filter Gaussian
+        \(\sigma\), Gaussian eddy-shape scales, area-equivalent radius, and
+        speed-based radius describe different quantities.
+        </p>
+        <div class="table-scroll">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Quantity</th>
+                        <th>Definition or role in the paper</th>
+                        <th>Available here?</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>\(L_{\mathrm{eff}}\)</td>
+                        <td>Radius of a circle with the same area as the accepted outer region.</td>
+                        <td>Yes, from geographic pixel areas.</td>
+                    </tr>
+                    <tr>
+                        <td>\(L_e\)</td>
+                        <td>Gaussian-derived e-folding scale, estimated from the area above \(h_0+A/e\) for maxima or below \(h_0-A/e\) for minima.</td>
+                        <td>Not computed.</td>
+                    </tr>
+                    <tr>
+                        <td>\(L=L_e/\sqrt2\)</td>
+                        <td>Radius of maximum axial geostrophic speed for an ideal axisymmetric Gaussian eddy.</td>
+                        <td>Not computed.</td>
+                    </tr>
+                    <tr>
+                        <td>\(L_s\)</td>
+                        <td>Area-equivalent radius of the SSH contour with maximum circum-average geostrophic speed.</td>
+                        <td>Not computed.</td>
+                    </tr>
+                    <tr>
+                        <td>\(D_{\max}\)</td>
+                        <td>Maximum point-pair distance used to constrain compactness.</td>
+                        <td>Yes; reported separately from radius.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <p>
+For the speed-based definition, let \(C_*\) be the closed contour within
+        the eddy with the largest circum-average geostrophic speed. Then
+        </p>
+        <div class="equation">
+            \[
+                        L_s=\sqrt{\frac{\mathcal A(C_*)}{\pi}},\qquad
+                        U=\overline{|\mathbf v_g|}_{\,C_*}.
+                        \]
+        </div>
+        <p>
+The paper favors this speed-based scale because it does not assume a
+        Gaussian eddy shape. The explorer's area radius and pair distance must
+        not be relabelled as \(L_s\), nor interpreted as independent measurements
+        of maximum rotational speed.
+        </p>
+    </section>
+    <section id="diagnostics">
+        <h2>5. Interpreting candidate diagnostics</h2>
+        <p>
+The page records each candidate's first failed check. Later checks are
+            marked <strong>Not evaluated</strong>, not failed. Runtime order is:
+        domain boundary, missing data, pixel count, holes, interior extremum,
+        amplitude, and pair distance. Threshold selection and four-neighbor
+        component labeling occur before these checks.
+        </p>
+        <div class="table-scroll">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Decision</th>
+                        <th>Interpretation</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Touches the domain boundary</td>
+                        <td>A closed contour cannot be established beyond the cropped map.</td>
+                    </tr>
+                    <tr>
+                        <td>Touches missing data</td>
+                        <td>The candidate or its immediate neighborhood meets an unavailable pixel; an unknown boundary is not treated as a valid SSH contour.</td>
+                    </tr>
+                    <tr>
+                        <td>Size outside 8–999 pixels</td>
+                        <td>The connected component fails the paper's pixel-count limits.</td>
+                    </tr>
+                    <tr>
+                        <td>Contains holes</td>
+                        <td>The selected region is not simply connected.</td>
+                    </tr>
+                    <tr>
+                        <td>No qualifying interior local extremum</td>
+                        <td>No strict maximum/minimum has all four neighbors within the candidate.</td>
+                    </tr>
+                    <tr>
+                        <td>Amplitude below 1 cm</td>
+                        <td>The measured extremum-to-perimeter-mean difference is too small.</td>
+                    </tr>
+                    <tr>
+                        <td>Maximum pair distance reaches its limit</td>
+                        <td>The candidate fails the latitude-dependent compactness condition.</td>
+                    </tr>
+                    <tr>
+                        <td>All implemented criteria passed</td>
+                        <td>The patch meets these snapshot conditions; persistence and nonlinearity remain untested.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <p>
+The inspector shows the selected region, available qualifying extrema,
+        pixel-value distributions, the perimeter mean, and measured values for
+        the tests reached. A distribution can illustrate amplitude for an early
+        rejection even when its amplitude criterion was not evaluated. The
+        outcome table is the record of which checks actually ran.
+        </p>
+        <p>
+On the overview, original SLA is the map background while boundaries are
+        detected from the selected processed field. Diagnostic maps use the
+        processed field. Full-scan maps emphasize accepted contours to avoid
+        hundreds of overlapping rejected outlines; the complete candidate
+        record remains in the filterable table and CSV export.
+        </p>
+        <p><a href="{% url 'chelton_detection' %}">Open the Chelton explorer to inspect a date, scan level, and candidate</a>.</p>
+    </section>
+    <section id="tracking">
+        <h2>6. Tracking, lifetime selection, and nonlinearity</h2>
+        <p>The <a href="{% url 'chelton_tracker' %}">Chelton Tracking Explorer</a>
+        links accepted detections on consecutive daily OSU fields. The procedure
+        below describes this project's implementation: a regional daily adaptation
+        with configurable search distances and measurement ratios.
+        </p>
+
+        <h3 id="tracking-inputs">6.1 Daily inputs and measurements</h3>
+        <p>
+Each available day is processed independently with the selected background
+        removal, followed by the full threshold scan: both polarities from −100 to
+        +100 cm in 1 cm increments. Tracking always uses this scan, even though the
+        detection explorer also offers a single-threshold experiment. A previous
+        track does not influence the next day's detection.
+        </p>
+        <p>
+Accepted regions are standardized before association. Tracking positions
+        are spherical means of boundary vertices, rather than the detection page's
+        mean pixel location or the paper's SSH-based centroid. Amplitude is the
+        perimeter-mean amplitude from section 4.1. Tracking area is the spherical
+        contour area, with area-equivalent radius \(r=\sqrt{S/\pi}\); these contour
+        measurements can differ from the detection page's geographic pixel area.
+        </p>
+        <p>
+Unavailable source dates are listed and supplied as empty detection days.
+        An available day with no accepted regions is also empty for association.
+        Coordinate-grid changes and processing failures stop the run with an error;
+        they are not silently treated as missing observations.
+        </p>
+
+        <h3 id="tracking-search">6.2 Asymmetric search ellipse</h3>
+        <p>
+For a previous center \((\phi_1,\lambda_1)\) and a candidate
+        \((\phi_2,\lambda_2)\), let \(\Delta\lambda\) be the longitude difference
+        wrapped to \([-\pi,\pi)\). With angles in radians and \(R=6371\) km,
+        local offsets are
+        </p>
+        <div class="equation">
+            \[
+            x=R\cos\!\left(\frac{\phi_1+\phi_2}{2}\right)\Delta\lambda,
+            \qquad y=R(\phi_2-\phi_1),
+            \qquad
+            \left(\frac{x}{a_x}\right)^2+
+            \left(\frac{y}{a_y}\right)^2\leq1.
+            \]
+        </div>
+        <p>
+The horizontal semi-axis \(a_x\) is the eastward limit when
+        \(x\geq0\) and the westward limit otherwise; \(a_y\) is the north–south
+        limit. Experimental defaults are 30 km east, 50 km west, and 30 km
+        north–south. The ellipse is a hard eligibility gate. Eligible pairs are
+        ranked by their great-circle distance, rather than the normalized ellipse
+        value. A larger westward allowance is a geometric search preference,
+        not a measured propagation speed.
+        </p>
+
+        <h3 id="tracking-assignment">6.3 Compatibility and greedy assignment</h3>
+        <p>
+A candidate must have the same polarity as the track's last observation
+        and pass both measurement-ratio gates:
+        </p>
+        <div class="equation">
+            \[
+            q_{A,\min}\leq\frac{A_{\mathrm{new}}}{A_{\mathrm{last}}}\leq q_{A,\max},
+            \qquad
+            q_{S,\min}\leq\frac{S_{\mathrm{new}}}{S_{\mathrm{last}}}\leq q_{S,\max}.
+            \]
+        </div>
+        <p>
+Here \(A\) is amplitude and \(S\) is spherical contour area. Both
+        intervals default to [0.25, 2.5], inclusive. Missing or nonpositive
+        measurements cannot form a match. Ratios are relative to the last
+        observation, not to the track's initial value or mean.
+        </p>
+        <ol>
+            <li>
+Collect all eligible pairs between tracks observed yesterday and
+            today's detections.
+            </li>
+            <li>
+Sort pairs by increasing great-circle distance. Exact ties use
+            track ID, then today's input detection index.
+            </li>
+            <li>
+Accept a pair only when neither member has already been assigned.
+            Each track and detection can be used once on this date.
+            </li>
+            <li>
+Close unmatched tracks. Every unassigned detection starts a new
+            track with an incrementing run-local ID.
+            </li>
+        </ol>
+        <p>
+There is no missing-day recovery, motion prediction, splitting, or merging.
+        A missing or empty day terminates every active track. For example,
+        detections on days 1, 2, and 4 cannot form one continuous track: the
+        day-4 detection starts a new one. Greedy nearest-pair assignment does
+        not optimize all trajectories jointly.
+        </p>
+
+        <h3 id="tracking-lifetime">6.4 Controls and lifetime filtering</h3>
+        <div class="table-scroll">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Control</th>
+                        <th>Default</th>
+                        <th>Meaning</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Duration</td>
+                        <td>90 days</td>
+                        <td>1–90 consecutive calendar days, including the starting date.</td>
+                    </tr>
+                    <tr>
+                        <td>Background removal</td>
+                        <td>Custom Gaussian, σ = 4 cells</td>
+                        <td>The detection page's custom, paper-scale, or unfiltered choice is applied independently each day.</td>
+                    </tr>
+                    <tr>
+                        <td>Search semi-axes</td>
+                        <td>30 / 50 / 30 km</td>
+                        <td>East / west / north–south; all must be positive.</td>
+                    </tr>
+                    <tr>
+                        <td>Amplitude and area ratios</td>
+                        <td>0.25–2.5 each</td>
+                        <td>Positive lower and upper bounds, with the upper bound at least the lower bound.</td>
+                    </tr>
+                    <tr>
+                        <td>Minimum retained lifetime</td>
+                        <td>28 days</td>
+                        <td>Inclusive calendar span, at least one day and no greater than the selected duration.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <div class="equation">
+            \[L=(t_{\mathrm{last}}-t_{\mathrm{first}})_{\mathrm{days}}+1.\]
+        </div>
+        <p>
+Lifetime filtering happens after association. Because this tracker never
+        bridges gaps, lifetime equals the number of daily observations. Track IDs
+        are not renumbered after filtering. Counts, polarity totals, mean and maximum
+        lifetime, and mean radii describe retained tracks only; selecting a track
+        changes the visualization, not the population statistics.
+        </p>
+
+        <h3 id="tracking-interpretation">6.5 Interpreting trajectories</h3>
+        <p>
+Map markers represent assigned daily centers and lines connect adjacent
+        observations. The selected-track time series shows great-circle distance
+        from the first assigned center, not cumulative travel distance or speed.
+        Repeated coordinates record repeated detector locations; they do not prove
+        that the physical eddy was stationary. The repeated-center summary excludes
+        single-observation tracks from its comparable-track count.
+        </p>
+        <p>
+Endpoints are limited by the selected interval and detection coverage:
+        a retained track can begin before or continue after the displayed window.
+        An interior endpoint can also reflect a failed detection or association.
+        No trajectory smoothing or latitude-dependent Rossby propagation limit
+        is applied. Assess parameter sensitivity before interpreting a sequence
+        of matches as the identity of a physical eddy.
+        </p>
+
+        <h3 id="tracking-nonlinearity">6.6 Paper comparison and nonlinearity</h3>
+        <p>
+Appendix B.4 of the paper associates eddies across successive maps using
+        a constrained search region and an SSH-based centroid. Its four-week
+        retention and sixteen-week main-analysis population differ from this
+        daily implementation. The default 28 inclusive days adapts four-week
+        retention; the experimental daily search distances do not reproduce
+        the paper's weekly sampling or its full catalogue.
+        </p>
+        <p>The paper assesses nonlinearity using</p>
+        <div class="equation">
+            \[\frac{U}{c}\gt1.\]
+        </div>
+        <p>
+Here \(U\) is the maximum circum-average geostrophic speed and \(c\)
+        is translation speed along the track. Neither the detection explorer nor
+        this tracking implementation computes that nonlinearity metric. Passing
+        the shape, amplitude, and association checks does not establish fluid trapping.
+        </p>
+    </section>
+    <section id="paper-differences">
+        <h2>7. Differences from the paper and practical limitations</h2>
+        <div class="table-scroll">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Aspect</th>
+                        <th>Preserved or implemented</th>
+                        <th>Important qualification</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Identification rules</td>
+                        <td>Four-neighbor regions, simple connectivity, five criteria, strict interior extrema, and allowance for multiple extrema.</td>
+                        <td>Additional edge and missing-data guards are regional implementation decisions.</td>
+                    </tr>
+                    <tr>
+                        <td>Full scan</td>
+                        <td>Both polarities, 1 cm levels, opposite scan directions, and retirement of accepted interior pixels.</td>
+                        <td>A single-threshold run is an exploratory extension, not the complete scan.</td>
+                    </tr>
+                    <tr>
+                        <td>Filtering</td>
+                        <td>A Gaussian option is calibrated to the paper's 20° × 10° axial cutoff scales.</td>
+                        <td>The kernel is an approximation; the custom default has different cutoffs, and masks and map boundaries alter filter behavior.</td>
+                    </tr>
+                    <tr>
+                        <td>Measurements</td>
+                        <td>Perimeter-mean amplitude, geographic pixel area, effective radius, and all-pairs great-circle compactness.</td>
+                        <td>The mean candidate latitude selects the distance limit; Gaussian eddy scales and the speed-based radius are not computed.</td>
+                    </tr>
+                    <tr>
+                        <td>Data and sampling</td>
+                        <td>The method is applied to the supplied daily regional SLA fields.</td>
+                        <td>The paper uses a different global mapped product and seven-day sampling, with its own effective resolution.</td>
+                    </tr>
+                    <tr>
+                        <td>Tracked population</td>
+                        <td>Single-map detection and a separate daily tracker with configurable lifetime retention are available.</td>
+                        <td>Section 6 describes the regional tracking adaptation. The paper's full catalogue, propagation-speed analysis, and nonlinearity classification are not reproduced.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <h3 id="boundary-bias">Boundary and amplitude uncertainty</h3>
+        <p>
+Appendix C emphasizes that an outermost acceptable SSH contour may exclude
+        part of a physical eddy. The 1 cm contour increment alone can bias
+        amplitude low by as much as about 1 cm, while boundary selection can also
+        reduce inferred area and associated scales. That discretization statement
+        is not a bound on total uncertainty: background flow, sampling, mapping,
+        interactions, and the compactness restriction also matter.
+        </p>
+        <p>
+Including more outer pixels can raise an estimated amplitude or radius
+        while producing a less compact, less interpretable structure. Reducing
+        a numerical threshold therefore does not automatically improve the result.
+        The paper's boundary definition is operational, not a unique physical
+        separation between an eddy and its surroundings.
+        </p>
+        <h3 id="sensitivity">Sensitivity and validation</h3>
+        <p>
+For the evaluated 1993-01-01 dataset, the corrected full scan accepts 27
+        patches with the custom \(\sigma=4\) Gaussian, 26 with the paper-scale
+        Gaussian approximation, and 25 without additional filtering. These are
+        results from this regional day, not the paper's published catalogue or
+        a ranking of detection accuracy.
+        </p>
+        <p>
+Use the filter comparison and candidate diagnostics to identify which
+        structures change and why. Independent labels and multiple dates are
+        needed to assess detection accuracy. Geometric consistency and a high
+        count alone do not validate an eddy population.
+        </p>
+        <p>For a contrasting approach, the <a href="{% url 'nencioli_methodology' %}">Nencioli
+        methodology</a> detects centers from four velocity-geometry constraints
+        and estimates boundaries from a local streamfunction, rather than
+        thresholding SSH regions.
+        </p>
+    </section>
+{% endblock %}

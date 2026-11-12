@@ -1,0 +1,190 @@
+.comparison-results section {
+    scroll-margin-top: 20px;
+}
+
+.result-nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 20px;
+    font-size: 13px;
+    margin-bottom: 20px;
+}
+
+button:disabled {
+    opacity: .5;
+    cursor: default;
+}
+
+.parameter-presets {
+    display: grid;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.parameter-presets button {
+    font-size: 12px;
+    padding: 9px;
+    text-align: left;
+}
+
+.sidebar details {
+    padding: 12px;
+    margin: 0;
+}
+
+.sidebar details .form-field {
+    margin-top: 12px;
+}
+
+.diagnostic-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    align-items: end;
+    margin: 18px 0;
+}
+
+.match-polarity-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.match-polarity-option input {
+    appearance: none;
+    flex-shrink: 0;
+    margin: 0;
+    padding: 0;
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    background: var(--control);
+    border-color: var(--line);
+    cursor: pointer;
+}
+
+.match-polarity-option input:checked {
+    background: var(--accent);
+    border-color: var(--accent);
+}
+
+.match-polarity-option input:checked::after {
+    content: "✓";
+    display: block;
+    color: #edf8fb;
+    font-size: 14px;
+    line-height: 16px;
+    text-align: center;
+}
+
+.candidate-scroll {
+    max-height: 520px;
+}
+
+.candidate-scroll thead {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+#comparison-table tr.selected td {
+    background: var(--selection);
+}
+
+.comparison-results .explanation {
+    padding: 14px 18px;
+    border-left: 3px solid #11879a;
+    background: var(--control);
+}
+
+.comparison-charts {
+    width: 100%;
+    overflow-x: auto;
+}
+
+.comparison-charts .plotly-graph-div {
+    min-width: 560px;
+}
+
+@media (max-width: 680px) {
+    .comparison-results .stats {
+        grid-template-columns: 1fr;
+    }
+
+    .comparison-results .panel-head {
+        flex-wrap: wrap;
+    }
+
+    .diagnostic-controls>div,
+    .diagnostic-controls select {
+        width: 100%;
+    }
+}
+
+.evolution-charts .plotly-graph-div {
+    min-width: 820px;
+}
+
+.comparison-workflow,
+.comparison-method-settings {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 18px;
+}
+
+.comparison-workflow {
+    margin-bottom: 24px;
+    padding: 18px 20px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface);
+}
+
+.comparison-workflow p {
+    margin: 8px 0 0;
+    font-size: 13px;
+    line-height: 1.6;
+}
+
+.comparison-method-settings dl {
+    font-size: 13px;
+}
+
+.comparison-method-settings dt {
+    margin-top: 10px;
+}
+
+.comparison-method-settings dd {
+    margin: 3px 0;
+    font-weight: 600;
+}
+
+.method-dot {
+    display: inline-block;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    margin-right: 8px;
+}
+
+#comparison-tracking-controls[hidden] {
+    display: none;
+}
+
+@media (max-width: 900px) {
+
+    .comparison-workflow,
+    .comparison-method-settings {
+        grid-template-columns: 1fr;
+    }
+}
+
+.comparison-job progress {
+    width: 100%;
+    height: 14px;
+    accent-color: #176443;
+}
+
+.comparison-job {
+    margin-bottom: 24px;
+}

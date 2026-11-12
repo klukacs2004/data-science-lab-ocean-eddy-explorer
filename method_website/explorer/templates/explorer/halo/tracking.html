@@ -1,0 +1,49 @@
+{% extends "explorer/nencioli/tracking.html" %}
+{% block title %}Halo Eddy Tracking Explorer{% endblock %}
+{% block brand %}Halo Tracking{% endblock %}
+{% block page_title %}Track Halo / Okubo–Weiss eddies across days{% endblock %}
+{% block page_introduction %}Compare daily SLA eddies using position, diameter, and signed contour-mean vorticity. The OSU configuration is experimental; retain the legacy option for reproducible comparisons.{% endblock %}
+{% block form_content %}
+    <div class="form-field">{{ form.duration_days.as_field_group }}</div>
+    <details open>
+        <summary>Daily Halo detection</summary>
+        <div class="form-field">{{ form.contour_interval_cm.as_field_group }}</div>
+        <div class="form-field">{{ form.max_diameter_km.as_field_group }}</div>
+        <div class="form-field">{{ form.filter_passes.as_field_group }}</div>
+        <p class="note">This is a closed-SLA-contour adaptation. Absolute SSH/ADT requires compatible spatially varying mean dynamic topography. Adding a constant to SLA does not reconstruct ADT. Hanning passes here apply to W.</p>
+    </details>
+    <details open>
+        <summary>Tracking compatibility</summary>
+        <div class="form-field">{{ form.assignment_method.as_field_group }}</div>
+        <div class="form-field">{{ form.max_displacement_km.as_field_group }}</div>
+        <div class="form-field">{{ form.position_scale_km.as_field_group }}</div>
+        <div class="form-field">{{ form.diameter_scale_km.as_field_group }}</div>
+        <div class="form-field">{{ form.vorticity_scale_s.as_field_group }}</div>
+        <div class="form-field">{{ form.max_generalized_distance.as_field_group }}</div>
+        <p class="note">Opposite vorticity signs cannot match. Score cutoff 2.0 is a candidate for evaluation, not a calibrated or published constant. To reproduce legacy tracking, choose greedy assignment, leave the cutoff blank, and disable gaps and velocity smoothing.</p>
+    </details>
+    <details>
+        <summary>Separate gap and vorticity sensitivities</summary>
+        <div class="form-field">{{ form.max_gap_days.as_field_group }}</div>
+        <div class="form-field">{{ form.gap_max_displacement_km.as_field_group }}</div>
+        <div class="form-field">{{ form.gap_max_generalized_distance.as_field_group }}</div>
+        <p class="note">Gap reconnection also limits the symmetric diameter ratio to 1.5 and vorticity-magnitude ratio to 2. These are experimental constraints. The gap distance is the total over two days.</p>
+        <div class="form-field">{{ form.velocity_smoothing_passes.as_field_group }}</div>
+        <div class="form-field">{{ form.minimum_abs_vorticity_s.as_field_group }}</div>
+    </details>
+    <div class="form-field">{{ form.min_lifetime_days.as_field_group }}</div>
+    <p class="note">Processing is synchronous, up to 90 days. No missing-day recovery by default; enable it only as a separate sensitivity.</p>
+{% endblock %}
+{% block tracking_method %}
+    <section class="panel" id="tracking-method">
+        <h2>How Halo tracking works</h2>
+        <p>Daily SLA and geostrophic velocities are exactly aligned and passed through the existing detector. Centers are spherical means of contour vertices; diameters are twice the spherical area-equivalent radius. This remains an SLA adaptation, not an exact reproduction of an absolute-height study.</p>
+        <p>Candidates first pass the hard displacement gate (default 50 km). Their generalized distance is √[(displacement / position scale)² + (diameter change / diameter scale)² + (vorticity change / vorticity scale)²]. Reference scales are 25 km, 200 km and 10⁻⁵ s⁻¹; they are configuration values rather than universal constants. The OSU candidate cutoff is 2.0. Leaving it blank imposes no score cutoff.</p>
+        <p>Global one-to-one matching maximizes the number of eligible matches, then minimizes their total score for that date. Explicit unmatched alternatives handle infeasible or rectangular candidate sets. This optimizes one date, not whole future trajectories. Greedy lowest-score-first matching remains available for historical comparisons.</p>
+        <p>Signed relative vorticity ζ = ∂v/∂x − ∂u/∂y is averaged inside each contour using approximate spherical cell-area weights. Raw velocity derivatives remain the default. Optional Hanning smoothing is applied to velocities before differentiating; it does not alter the detection contours or W calculation. Missing, empty, nonfinite, zero-mean, and below-floor vorticity samples are excluded and reported. No sign reversal is permitted, including during gap recovery.</p>
+        <p>Adjacent-day matches have priority. With optional one-day gap recovery, unmatched detections may reconnect over two calendar days under a total-distance limit, tighter score cutoff, and diameter/vorticity ratio constraints. Missing dates have no fabricated observation. Recovered links are flagged and drawn as dashed segments. With gaps disabled, missing or empty days close tracks.</p>
+        <p>Observed span includes both endpoint dates and can exceed the observation count when a gap is bridged. Window-edge spans are censored, with a one-day endpoint margin when gap recovery is enabled; they are not exact physical lifetimes. Keep short tracks for diagnostics and use a minimum span of 31 days for an over-30-day selection. An interior endpoint can still result from detection or association failure.</p>
+        <p class="note">Compare configurations one change at a time. Longer tracks or a stronger radius–span correlation do not establish more accurate eddy identities.</p>
+    </section>
+{% endblock %}
+{% block footer %}Daily SLA adaptation · Position, diameter and vorticity · Explicit experimental settings{% endblock %}

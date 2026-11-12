@@ -1,0 +1,58 @@
+<section class="panel" id="inspector" aria-labelledby="inspector-title">
+    <div class="panel-head">
+        <h2 id="inspector-title">Inspect a candidate</h2>
+        <span class="eyebrow">Trace the decision</span>
+    </div>
+    <p>Select an ID from the map or a table. IDs apply to this date and parameter configuration.</p>
+    <div class="inspector-controls">
+        <div>
+            {{ form.candidate_id.as_field_group }}
+        </div>
+        <button type="submit" form="analysis-form">Inspect candidate</button>
+    </div>
+    {% if selected_candidate %}
+        <h3>Candidate {{ selected_candidate.id }} · {{ selected_candidate.reason_label }}</h3>
+        <p class="explanation">{{ selected_candidate.explanation }}</p>
+        <p>Original grid point ({{ selected_candidate.i }}, {{ selected_candidate.j }}) {% if selected_candidate.center_i is not None %}→ refined minimum ({{ selected_candidate.center_i }}, {{ selected_candidate.center_j }}){% endif %} · {{ selected_candidate.rotation }}</p>
+        <div class="table-scroll">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Constraint</th>
+                        <th>Outcome</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for criterion in selected_candidate.criteria %}
+                        <tr>
+                            <td>{{ criterion.label }}</td>
+                            <td>{{ criterion.result }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% if selected_candidate.minimum_first %}
+            <p>Minimum searches: first {{ selected_candidate.minimum_first }}; second {{ selected_candidate.minimum_second|default:"unavailable" }}. The two must agree.</p>
+        {% endif %}
+        {% if perimeter_evidence %}
+            <p class="explanation">{{ perimeter_evidence }}</p>
+        {% endif %}
+        <img src="data:image/png;base64,{{ candidate_image }}"
+             alt="Candidate {{ selected_candidate.id }}: velocity neighborhood, east–west and north–south sections, and perimeter angular progression">
+        <p>Plots illustrate the geometry, including checks that may not have been reached. The outcome table records which checks actually ran. Both clockwise and counterclockwise eddies must show counterclockwise angular progression when the perimeter is traversed counterclockwise.</p>
+        {% if boundary_image %}
+            <h3>Boundary investigation</h3>
+            <p>
+{{ selected_candidate.closed_contours }} closed contours found; {{ selected_candidate.growing_contours }} pass the growth test. Local half-width: {{ selected_candidate.region_radius }} grid cells.
+                {% if selected_candidate.land_limited %}The region was limited by land or missing data.{% endif %}
+            {% if selected_candidate.boundary_limited %}The region was limited by the data boundary.{% endif %}</p>
+            <img src="data:image/png;base64,{{ boundary_image }}"
+                 alt="Local streamfunction and velocity-growth checks at four boundary extrema">
+        {% endif %}
+        <a href="data:image/png;base64,{{ candidate_image }}"
+           download="nencioli_candidate_{{ selected_candidate.id }}_{{ run_settings.day|date:'Y-m-d' }}.png">Download candidate close-up</a>
+    {% else %}
+        <p>Choose a candidate to see the velocity sections, minimum-search window, circulation check, and available boundary diagnostics.</p>
+    {% endif %}
+</section>

@@ -1,0 +1,717 @@
+{% extends "explorer/methodology_base.html" %}
+{% load static %}
+
+{% block title %}Reproduction Guide · Ocean Eddy Explorer{% endblock %}
+
+{% block extra_css %}
+    <link rel="stylesheet" href="{% static 'explorer/reproduction.css' %}">
+{% endblock %}
+
+{% block method_title %}Reproduce the Ocean Eddy Explorer Results{% endblock %}
+
+{% block method_description %}
+    A practical guide to the data, numerical implementation, exact analysis settings,
+    and commands behind the saved 1993–2012 results and presentation figures.
+{% endblock %}
+
+{% block methodology_toc %}
+    <h3>Contents</h3>
+    <a href="#target">1. Choose a reproduction path</a>
+    <a href="#environment">2. Prepare the environment</a>
+    <a href="#data">3. Obtain and check the data</a>
+    <details class="toc-group" open>
+        <summary>4. Numerical implementation</summary>
+        <div class="toc-subsections">
+            <a href="#numerics">4.1 Coordinates and daily detection</a>
+            <a href="#geometry">4.2 Shared geometry</a>
+            <a href="#tracking-settings">4.3 Tracking and exact settings</a>
+        </div>
+    </details>
+    <a href="#full-run">5. Run detection and tracking</a>
+    <a href="#redraw">6. Rebuild statistics or redraw figures</a>
+    <a href="#statistics">7. How the statistics are calculated</a>
+    <a href="#presentation">8. Export presentation PNGs</a>
+    <a href="#verification">9. Verify and record the run</a>
+    <a href="#troubleshooting">10. Troubleshooting and references</a>
+    <a href="{% url 'comparison' %}">Open the Comparison Explorer →</a>
+    <a href="{% url 'comparison_methodology' %}">Read the comparison methodology →</a>
+{% endblock %}
+
+{% block methodology_content %}
+    <section id="target">
+        <h2>1. Choose a reproduction path</h2>
+        <p>
+            The reference results are in <code>artifacts/osu_assignment_1993_2012/</code>.
+            They cover <strong>1 January 1993 to 31 December 2012</strong>, inclusive:
+        7,305 daily fields, with tracking continuous across year boundaries.
+            The saved settings are recorded in <code>configuration.json</code> and
+            <code>plot_configuration.json</code> in that directory.
+        </p>
+        <ol class="reproduction-flow" aria-label="Numerical workflow">
+            <li><strong>01 · Input</strong>Daily SLA and velocity on the original grid.</li>
+            <li><strong>02 · Detect</strong>Run Chelton, Nencioli, and Halo independently.</li>
+            <li><strong>03 · Track</strong>Associate each catalogue across the full period.</li>
+            <li><strong>04 · Summarize</strong>Calculate sizes, spans, and class-scaled ages.</li>
+            <li><strong>05 · Export</strong>Save numerical tables and Figures 7 and 8.</li>
+        </ol>
+        <div class="table-scroll">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Your goal</th>
+                        <th>What you need</th>
+                        <th>Start here</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Recompute the analysis from source fields</td>
+                        <td>Project source, Python environment, and the original NetCDF files.</td>
+                        <td><a href="#environment">Environment and data</a>, then <a href="#full-run">the full run</a>.</td>
+                    </tr>
+                    <tr>
+                        <td>Recalculate statistics from saved tracks</td>
+                        <td>The saved <code>observations.csv.gz</code> catalogue.</td>
+                        <td><a href="#redraw">Catalogue-based reproduction</a>.</td>
+                    </tr>
+                    <tr>
+                        <td>Recreate plots with the same statistics</td>
+                        <td>The saved Figure 7 and Figure 8 CSV tables.</td>
+                        <td><a href="#redraw">Redraw the figures</a> or <a href="#presentation">export slide PNGs</a>.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <p class="reproduction-callout">
+            <strong>Use the batch workflow for the reference results.</strong>
+        The website is useful for inspecting dates and shorter periods. Its
+        Comparison mode accepts at most 365 days and has different Nencioli
+        tracking defaults. Repeating short runs also changes track endpoints
+        and censoring. The full reference analysis uses the batch settings below.
+        </p>
+        <p>
+These are OSU U.S. West Coast results inspired by Escudier et al.'s
+        Figures 7 and 8. They use a different region and source grid from that
+        paper. The original published Mediterranean curves are not reproduced
+        by running this project.
+        </p>
+    </section>
+
+    <section id="environment">
+        <h2>2. Prepare the environment</h2>
+        <p>
+Obtain the project source and open a terminal in its root directory,
+            where <code>requirements.txt</code>, <code>scripts/</code>, and
+            <code>method_website/</code> are located. The commands below use Linux
+        or WSL and Python 3.12. The inspected environment uses
+            <strong>Python 3.12.3 on Linux x86-64</strong>.
+        </p>
+        <pre><code>python3.12 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -m pip check
+.venv/bin/python method_website/manage.py check</code></pre>
+        <p>
+            Use the pinned dependency versions in <code>requirements.txt</code>.
+        The numerical stack includes NumPy 2.5.3, SciPy 1.18.1, pandas 3.0.6,
+        xarray 2026.9.0, netCDF4 1.7.4, scikit-image 0.26.0, and Matplotlib
+        3.11.2. Django 5.2.18 serves the website. The background comparison
+        worker uses POSIX file locking, so Linux or WSL is the straightforward
+        environment for the complete website workflow.
+        </p>
+        <p>
+The batch analysis does not need a running Django server or a
+        database migration. To open the website locally as well, run:
+        </p>
+        <pre><code>.venv/bin/python method_website/manage.py migrate
+.venv/bin/python method_website/manage.py runserver</code></pre>
+        <p>
+            Open <code>http://127.0.0.1:8000/</code>. The commands in the remaining
+        sections still run from the project root.
+        </p>
+    </section>
+
+    <section id="data">
+        <h2>3. Obtain and check the data</h2>
+        <p>
+Use the original Risien and Strub daily blended SLA and geostrophic
+        velocity dataset, identified by the
+            <a href="https://doi.org/10.7267/N90Z7153"
+               target="_blank"
+               rel="noopener">OSU dataset DOI</a>
+            and the <a href="https://ir.library.oregonstate.edu/concern/datasets/fn107383f?locale=en"
+                       target="_blank"
+                       rel="noopener">repository record supplied with the project</a>.
+            The project's archive is named <code>osu_daily_sla_geovel_v2.tar</code>.
+        Data files are excluded from source control, so a source checkout alone
+        does not provide them. Keep the original v2 files for comparison with
+        the saved run.
+        </p>
+        <p>
+            Place the archive in <code>data/</code>, extract it, and decompress
+            its annual <code>.nc.gz</code> members. Skip these commands if the
+            annual <code>.nc</code> files are already present.
+        </p>
+        <pre><code>mkdir -p data
+tar -xf data/osu_daily_sla_geovel_v2.tar -C data
+gzip -dk data/osu_daily_sla_geovel_*_v2.nc.gz</code></pre>
+        <p>
+The supplied archive contains annual files for 1993–2014.
+        The reference analysis uses only
+            <code>osu_daily_sla_geovel_1993_v2.nc</code> through
+            <code>osu_daily_sla_geovel_2012_v2.nc</code>, directly inside
+            <code>data/</code>. The loader searches for
+            <code>osu_daily_sla_geovel_*_v2.nc</code> and rejects duplicate dates.
+            Its default data directory is the project's <code>data/</code> directory.
+        </p>
+        <div class="table-scroll">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Input</th>
+                        <th>NetCDF variable or expected layout</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>SLA</td>
+                        <td><code>sea_surface_height_above_sea_level</code>, in metres.</td>
+                    </tr>
+                    <tr>
+                        <td>Eastward velocity</td>
+                        <td><code>surface_geostrophic_eastward_sea_water_velocity</code>, in m s⁻¹.</td>
+                    </tr>
+                    <tr>
+                        <td>Northward velocity</td>
+                        <td><code>surface_geostrophic_northward_sea_water_velocity</code>, in m s⁻¹.</td>
+                    </tr>
+                    <tr>
+                        <td>Spatial grid</td>
+                        <td>66 latitude × 95 longitude centers, increasing by 0.25°. Latitude centers: 32.125°–48.375°N; longitude centers: 225.125°–248.625°E.</td>
+                    </tr>
+                    <tr>
+                        <td>Time</td>
+                        <td>One daily field per calendar date. Source timestamps indicate the daily interval center, at 12:00.</td>
+                    </tr>
+                    <tr>
+                        <td>Welcome reference map</td>
+                        <td><code>mean_aviso_field_1993_2012_v2.nc</code> is a separate supplied file. It is used for the Welcome mean-SLA map and is not needed by the batch eddy analysis.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <p>Check that the entire reference period is available before starting:</p>
+        <pre><code>.venv/bin/python - &lt;&lt;'PY'
+from datetime import date, timedelta
+from pathlib import Path
+import sys
+from django.conf import settings
+
+settings.configure(SLA_DATA_DIR=Path.cwd() / "data")
+sys.path.insert(0, "method_website")
+from explorer.datasets import get_available_dates
+
+available = get_available_dates()
+start, end = date(1993, 1, 1), date(2012, 12, 31)
+days = [start + timedelta(days=i) for i in range((end - start).days + 1)]
+missing = [d.isoformat() for d in days if d.isoformat() not in available]
+assert not missing, f"Missing daily fields: {missing[:5]}"
+print(f"Ready: {len(days):,} daily fields")
+PY</code></pre>
+        <p>
+            The expected message is <code>Ready: 7,305 daily fields</code>.
+        This is a date-coverage check; it does not replace checking file
+        provenance, coordinate alignment, or variable units.
+        </p>
+    </section>
+
+    <section id="numerics">
+        <h2>4. Numerical implementation</h2>
+        <h3>4.1 Coordinates, missing data, and daily detection</h3>
+        <p>
+The batch script loads one calendar day at a time using xarray.
+        SLA and velocity coordinates must align exactly; no spatial
+        regridding is applied. Chelton receives SLA in
+            <code>(longitude, latitude)</code> order. Nencioli and Halo operate
+            on velocity arrays in <code>(latitude, longitude)</code> order,
+        with Halo receiving height in that same order. Missing values
+        remain missing and affect each method's acceptance checks.
+        </p>
+        <p>
+The reference run uses the supplied SLA and geostrophic velocities.
+        It applies no additional SLA high-pass filtering and does not add
+        the Welcome reference mean field to the input. Optional filtering
+        in an interactive explorer would define a different experiment.
+        </p>
+        <div class="table-scroll">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Detector</th>
+                        <th>Implemented numerical choices used here</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr><td><a href="{% url 'chelton_methodology' %}">Chelton</a></td><td>Scan both polarities over −100 to +100 cm in 1 cm steps. Use four-neighbor threshold connectivity; reject domain-edge or missing-data contact, holes, sizes outside 8 ≤ pixels &lt; 1000, absent qualifying extrema, amplitude below 1 cm, and excessive diameter. The diameter limit is 400 km throughout this study's latitudes. Accepted regions update the available-pixel mask during the scan.</td></tr>
+                    <tr><td><a href="{% url 'nencioli_methodology' %}">Nencioli</a></td><td>Use a = 2 and b = 2 cells for velocity-reversal, speed-minimum, and rotation checks. Reconstruct streamfunction by averaging two coordinate-aware trapezoidal integration paths; examine 100 contour levels. Closed boundaries must enclose the center and pass radial speed-growth tests, using bilinear interpolation. Preserve whether a boundary came from streamfunction or a circular fallback.</td></tr>
+                    <tr><td><a href="{% url 'halo_methodology' %}">Halo</a></td><td>Compute local Cartesian velocity derivatives on the interior grid. Smooth W twice with a mask-normalized 3 × 3 Hanning kernel and reflecting edges. Label negative-W regions with eight-neighbor connectivity. Trace closed SLA contours every 0.02 m, reject maximum contour diameters above 600 km, and select the largest eligible single-core contour for each rotating core.</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <p>
+Halo uses angular coordinates in radians and a spherical Earth
+        radius \(a_E=6{,}371{,}000\) m. Its local derivative operators and
+        rotation diagnostic are
+        </p>
+        <div class="equation">
+            \[
+                \partial_x=\frac{1}{a_E\cos\phi}\partial_\lambda,\qquad
+                \partial_y=\frac{1}{a_E}\partial_\phi,
+            \]
+            \[
+                s_n=u_x-v_y,\quad s_s=v_x+u_y,\quad
+                \zeta=v_x-u_y,\quad W=s_n^2+s_s^2-\zeta^2.
+            \]
+            \[
+                H=\frac1{16}
+                \begin{pmatrix}1&2&1\\2&4&2\\1&2&1\end{pmatrix}.
+            \]
+        </div>
+        <p>
+Coordinate-aware finite differences retain only the interior where
+        centered stencils are available. Hanning smoothing is applied to W;
+        representative tracking vorticity is taken from the unsmoothed
+        signed derivative field. Its contour mean uses interior grid centers
+        weighted in proportion to
+        \(\cos\phi\,\Delta\phi\,\Delta\lambda\). Empty interiors, missing
+        interior vorticity, or nonfinite or zero means are excluded before
+        Halo tracking. The reference configuration records zero such
+        exclusions.
+        </p>
+
+        <h3 id="geometry">4.2 Shared geometric measurements</h3>
+        <p>
+            The adapters in <code>method_website/eddy_detection/method_utils.py</code>
+        convert accepted boundaries to closed latitude–longitude polygons,
+        interpolating fractional grid coordinates and normalizing longitude
+        to [−180°, 180°). Each standardized center is the spherical mean of
+        the boundary vertices, omitting the repeated closing vertex.
+        Nencioli's original velocity center is retained separately.
+        </p>
+        <p>
+Spherical polygon areas use great-circle edges on a 6371 km
+        sphere. All reported radii use the common area-equivalent definition
+        </p>
+        <div class="equation">\[R=\sqrt{S/\pi}.\]</div>
+        <p>
+This radius differs from a detector's maximum pairwise diameter
+        divided by two. Nencioli circular fallback or unknown boundary
+        provenance is marked unreliable for physical size analysis.
+        Those observations can remain in track-span statistics, while
+        only reliable, finite, positive radii enter size statistics.
+        </p>
+
+        <h3 id="tracking-settings">4.3 Tracking and the exact reference settings</h3>
+        <p>
+Association is performed separately for each method after daily
+        detection over the whole selected period. Every tracker retains
+            spans from one day, and <strong>all three use no gap recovery</strong>
+        in this batch run. Unmatched observations start new tracks.
+        The following settings are fixed in
+            <code>generate()</code> in <code>scripts/plot_osu_assignment.py</code>;
+        a and b or tracking distances are not command-line options.
+        </p>
+        <div class="table-scroll">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Tracker</th>
+                        <th>Gates and assignment in the reference run</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Chelton</td>
+                        <td>Same polarity; asymmetric search ellipse with semi-axes 30 km east, 50 km west, and 30 km north/south. New/previous amplitude and area ratios each lie in [0.25, 2.5]. Greedy one-to-one assignment by increasing center distance.</td>
+                    </tr>
+                    <tr>
+                        <td>Nencioli</td>
+                        <td>Same polarity; maximum next-day displacement 40 km; greedy nearest eligible one-to-one assignment. Prefer the native velocity center. <code>max_gap_days=0</code>; the stored 45 km gap radius is inactive.</td>
+                    </tr>
+                    <tr>
+                        <td>Halo</td>
+                        <td>Preserve signed contour-mean vorticity sign; next-day displacement ≤ 50 km; generalized score J ≤ 2. Global assignment first maximizes eligible link count, then minimizes total score. No velocity smoothing or positive vorticity noise floor is added.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <p>For Halo, with \(D=2R\), the matching score is</p>
+        <div class="equation">
+            \[
+                J=\sqrt{
+                    \left(\frac{d}{25\ {\rm km}}\right)^2+
+                    \left(\frac{\Delta D}{200\ {\rm km}}\right)^2+
+                    \left(\frac{\Delta\bar\zeta}{10^{-5}\ {\rm s}^{-1}}\right)^2
+                }.
+            \]
+        </div>
+        <p>
+The hard 50 km displacement limit and the 25 km score scale
+        have different roles. All assignments use each track and detection
+        at most once per date; these trackers do not split or merge tracks.
+        </p>
+        <p>The separate <a href="{% url 'comparison_methodology' %}#shared-tracking">shared tracking procedure</a>
+        is a controlled association experiment available in the source.
+        It is not used to generate these saved results. The website's
+        Comparison tracker instead defaults to Nencioli a = 4, b = 3,
+        30 km daily displacement and a one-day gap allowance. Using those
+        defaults changes the reference experiment.
+        </p>
+    </section>
+
+    <section id="full-run">
+        <h2>5. Run detection and tracking from NetCDF</h2>
+        <p>
+First exercise the entire pipeline on three days, writing to a
+        separate directory:
+        </p>
+        <pre><code>OPENBLAS_NUM_THREADS=1 .venv/bin/python scripts/plot_osu_assignment.py \
+  --start 1993-01-01 --end 1993-01-03 \
+  --min-count 20 --output artifacts/reproduction_smoke</code></pre>
+        <p>
+With the inspected files and implementation, this check produces
+            <strong>133 observations and 67 tracks</strong>. Three days provide
+        a pipeline check; they cannot populate the seven-day-and-longer
+        Figure 8 classes.
+        </p>
+        <p>Then run the complete reference period in one invocation:</p>
+        <pre><code>OPENBLAS_NUM_THREADS=1 .venv/bin/python scripts/plot_osu_assignment.py \
+  --start 1993-01-01 --end 2012-12-31 \
+  --min-count 20 --output artifacts/reproduced_1993_2012</code></pre>
+        <p>
+Keep both date arguments: the script's default end date is
+            2014-12-31. Do not add <code>--include-censored-cycles</code> when
+        reproducing the reference Figure 8.
+        </p>
+        <p>
+The script reports daily progress, retains daily catalogues in
+        memory, then tracks continuously through the selected period.
+        Runtime and peak memory depend on the machine. This batch path
+        does not automatically resume from the website's cached detections.
+        Use a new output directory for each experiment; matching output
+        filenames are overwritten.
+        </p>
+        <p>
+            The run writes <code>observations.csv.gz</code>,
+            <code>tracks.csv</code>, detection/tracking and plotting configuration,
+        the Figure 7 and 8 numerical tables, PNG/PDF figures, and the
+            supplementary <code>radius_span</code> plots and
+            <code>correlations.csv</code>.
+        </p>
+    </section>
+
+    <section id="redraw">
+        <h2>6. Rebuild statistics or redraw figures</h2>
+        <h3>Rebuild from the saved observation catalogue</h3>
+        <p>
+This route recalculates track summaries, distribution tables,
+        radius-evolution bins, correlations, and plots. It reuses the saved
+        association results and therefore does not rerun detection or tracking.
+        </p>
+        <pre><code>.venv/bin/python scripts/plot_osu_assignment.py \
+  --catalogue artifacts/osu_assignment_1993_2012/observations.csv.gz \
+  --min-count 20 --output artifacts/replot_1993_2012</code></pre>
+        <p>
+            Keep the original <code>configuration.json</code> alongside the
+        catalogue as the record of data and association settings.
+            A catalogue-only run writes a new <code>plot_configuration.json</code>
+        but does not reconstruct the original detection configuration.
+        </p>
+        <h3>Redraw directly from the numerical figure tables</h3>
+        <pre><code>.venv/bin/python scripts/plot_osu_assignment.py \
+  --figure7-csv artifacts/osu_assignment_1993_2012 \
+  --output artifacts/redrawn_figures
+
+.venv/bin/python scripts/plot_osu_assignment.py \
+  --figure8-csv artifacts/osu_assignment_1993_2012/figure8_data.csv \
+  --min-count 20 --output artifacts/redrawn_figures</code></pre>
+        <p>
+            <code>--figure7-csv</code> takes a directory containing
+            <code>figure7_radius_data.csv</code> and
+            <code>figure7_survival_data.csv</code>.
+            <code>--figure8-csv</code> takes the actual CSV file.
+        The latter applies the selected contributor threshold to the saved
+        unmasked means. It cannot change the original censoring selection.
+        </p>
+    </section>
+
+    <section id="statistics">
+        <h2>7. How the statistics are calculated</h2>
+        <h3>Figure 7: two different populations</h3>
+        <p>
+Size percentages count reliable daily radius observations in
+        2 km bins. For each method, divide each bin count by that method's
+        full reliable-observation total and multiply by 100.
+        A longer track contributes more daily observations.
+        </p>
+        <p>
+The lower panel counts each track once. Its observed span and
+        empirical upper-tail percentage are
+        </p>
+        <div class="equation">
+            \[
+                T=(t_{\rm last}-t_{\rm first})_{\rm days}+1,\qquad
+                P(T\geq d)=100\,\frac{N(T\geq d)}{N_{\rm tracks}}.
+            \]
+        </div>
+        <p>
+All tracks, including single-day and period-boundary tracks,
+        enter this denominator. Zero percentages are omitted from the
+        logarithmic drawing. An observed span is not a proven physical
+        eddy lifetime, and this empirical curve does not correct for censoring.
+        </p>
+        <h3>Figure 8: age scaling and equal track weighting</h3>
+        <p>
+Use span classes [7, 25), [25, 50), [50, 100), [100, 150),
+        [150, 200), and [200, 250] days. Shared endpoints enter the next
+        class; 250 days remains in the final class. Tracks touching either
+        endpoint of the full analysis period are excluded.
+        </p>
+        <div class="equation">
+            \[
+                q=\frac{(t-t_{\rm first})_{\rm days}}{T},\qquad
+                x=q\,T_c,\qquad b=\lfloor x\rfloor,
+            \]
+        </div>
+        <p>
+Here \(T_c\) is the class midpoint: 16, 37.5, 75, 125, 175, or
+        225 days. In each one-day class-scaled bin, first average radii
+        within each track, then average the track means with equal weight.
+        Plot at bin center \(b+0.5\). Keep absolute radius in kilometres,
+        without normalization by a track's mean radius. Do not interpolate
+        missing observations. A visible bin needs at least 20 distinct
+        contributing tracks; other bins remain gaps.
+        </p>
+        <p>
+            <code>figure8_data.csv</code> records the contributor count,
+        displayed radius, pre-threshold mean, and class track count.
+        The supplementary correlations compare each track's mean reliable
+        radius with its span using Pearson and Spearman coefficients.
+        Correlations require at least three usable tracks and variation in
+        both quantities.
+        </p>
+    </section>
+
+    <section id="presentation">
+        <h2>8. Export presentation PNGs</h2>
+        <p>
+To reproduce the two 3840 × 2160 presentation images with larger
+        labels and fixed Escudier paper axis windows, run:
+        </p>
+        <pre><code>.venv/bin/python scripts/export_comparison_presentation.py \
+  --source artifacts/osu_assignment_1993_2012 \
+  --output artifacts/reproduced_presentation</code></pre>
+        <p>
+            For a new full analysis, change <code>--source</code> to
+            <code>artifacts/reproduced_1993_2012</code>. The exporter needs the
+            three figure CSVs plus <code>configuration.json</code> and
+            <code>plot_configuration.json</code> from the same run.
+        </p>
+        <div class="table-scroll">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Panel</th>
+                        <th>Horizontal axis</th>
+                        <th>Vertical axis</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Figure 7: radius</td>
+                        <td>0–100 km</td>
+                        <td>0–18%</td>
+                    </tr>
+                    <tr>
+                        <td>Figure 7: span</td>
+                        <td>0–250 days</td>
+                        <td>0.3–100%, logarithmic</td>
+                    </tr>
+                    <tr>
+                        <td>Figure 8: radius evolution</td>
+                        <td>0–225 class-scaled days</td>
+                        <td>17.5–65 km</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <p>
+The exporter writes
+            <code>figure7_comparison_presentation.png</code>,
+            <code>figure8_comparison_presentation.png</code>, and
+            <code>export_configuration.json</code>, including source CSV
+        SHA-256 hashes. Standard batch plots fit some axes to the available
+        data; these presentation exports deliberately retain the fixed paper
+        ranges. The reference Chelton Figure 8 means are 69.3–107.3 km,
+        above its 65 km limit. The image labels this and partially clipped
+        Halo values explicitly. Clipping changes the drawing window,
+        not the statistics or their denominators.
+        </p>
+    </section>
+
+    <section id="verification">
+        <h2>9. Verify and record the run</h2>
+        <p>
+Use the saved 1993–2012 tables as the reference. The counts below
+        are read from those artifacts, with the current catalogue-based
+        rebuild confirming 399,082 observations and 59,202 tracks in total.
+        </p>
+        <div class="table-scroll">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Method</th>
+                        <th>Tracks</th>
+                        <th>Daily observations</th>
+                        <th>Reliable radius observations</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Chelton</td>
+                        <td>20,536</td>
+                        <td>198,794</td>
+                        <td>198,794</td>
+                    </tr>
+                    <tr>
+                        <td>Nencioli</td>
+                        <td>14,330</td>
+                        <td>81,361</td>
+                        <td>81,289</td>
+                    </tr>
+                    <tr>
+                        <td>Halo</td>
+                        <td>24,336</td>
+                        <td>118,927</td>
+                        <td>118,927</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <p>Check the rebuilt summaries from section 6 with:</p>
+        <pre><code>.venv/bin/python - &lt;&lt;'PY'
+from pathlib import Path
+import pandas as pd
+
+root = Path("artifacts/replot_1993_2012")
+tracks = pd.read_csv(root / "tracks.csv")
+radius = pd.read_csv(root / "figure7_radius_data.csv")
+expected = {
+    "Chelton": (20536, 198794, 198794),
+    "Nencioli": (14330, 81361, 81289),
+    "Halo": (24336, 118927, 118927),
+}
+for method, counts in expected.items():
+    t = tracks[tracks.method == method]
+    r = radius[radius.method == method]
+    actual = (len(t), int(t.observations.sum()), int(r["count"].sum()))
+    assert actual == counts, (method, actual, counts)
+    assert abs(r.percent.sum() - 100) &lt; 1e-8
+    print(method, actual, "OK")
+PY</code></pre>
+        <p>
+For a full NetCDF rerun, point the same check at
+            <code>artifacts/reproduced_1993_2012</code>. Compare the numerical
+        Figure 7 and 8 CSVs as well as the totals; matching totals alone
+        do not establish identical distributions. Check
+            <code>contributors</code>, censoring, and missing bins in Figure 8.
+        Compare floating-point values with a stated tolerance rather than
+        requiring byte-identical PNG, PDF, or gzip files.
+        </p>
+        <p>Run the existing implementation and statistical checks:</p>
+        <pre><code>.venv/bin/python method_website/manage.py test explorer eddy_detection --noinput
+.venv/bin/python -m unittest discover -s tests -p 'test_*.py'</code></pre>
+        <p>
+Archive the source revision, Python version, installed packages,
+        configuration files, numerical tables, and input checksums with
+        your run. The analysis configuration records input filenames,
+        sizes, and modification times, but those are not content hashes.
+        For a Bash/Linux provenance record:
+        </p>
+        <pre><code>mkdir -p artifacts/reproduction_record
+.venv/bin/python --version &gt; artifacts/reproduction_record/python.txt
+.venv/bin/python -m pip freeze &gt; artifacts/reproduction_record/environment.txt
+sha256sum data/osu_daily_sla_geovel_{1993..2012}_v2.nc \
+  &gt; artifacts/reproduction_record/input_sha256.txt
+sha256sum requirements.txt scripts/*.py \
+  method_website/eddy_detection/*.py method_website/eddy_tracking/*.py \
+  method_website/explorer/methods.py method_website/explorer/datasets.py \
+  &gt; artifacts/reproduction_record/source_sha256.txt</code></pre>
+        <p>
+No random sampling is used by this workflow. Library versions,
+        floating-point arithmetic, contour interpolation, and tie ordering
+        can still affect threshold decisions and associations, so retain
+        the original source and environment for close comparisons.
+        </p>
+    </section>
+
+    <section id="troubleshooting">
+        <h2>10. Troubleshooting and references</h2>
+        <div class="table-scroll">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Symptom</th>
+                        <th>What to check</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>No dates, or missing daily input</td>
+                        <td>Extract and decompress the annual files directly into <code>data/</code>. The loader does not read the TAR archive or search nested directories. Check exact filenames and duplicate dates.</td>
+                    </tr>
+                    <tr>
+                        <td>Coordinate alignment or shape error</td>
+                        <td>Use SLA and both velocities from the same original files. Preserve increasing latitude/longitude coordinates and dimension names; avoid an independently regridded field.</td>
+                    </tr>
+                    <tr>
+                        <td>Different results from the Comparison page</td>
+                        <td>Check the analysis period, Nencioli a/b, displacement and gap rules, and minimum-span selection. Use the batch script for the full 1993–2012 reference.</td>
+                    </tr>
+                    <tr>
+                        <td>Empty or broken Figure 8 curves</td>
+                        <td>Check the span classes, number of contributors, boundary-censoring selection, and radius reliability. A three-day test cannot produce a seven-day class. Fixed slide axes also clip values above 65 km.</td>
+                    </tr>
+                    <tr>
+                        <td>Presentation export lacks configuration</td>
+                        <td>Use a complete saved reference or full-run output directory. A CSV-only redraw or catalogue-only rebuild does not generate the original detection configuration.</td>
+                    </tr>
+                    <tr>
+                        <td>Full run stops or exhausts memory</td>
+                        <td>Confirm the three-day run first and allow memory for all daily detection catalogues. A shorter period is a separate experiment. The batch script has no automatic checkpoint resume.</td>
+                    </tr>
+                    <tr>
+                        <td>Matplotlib cache permissions</td>
+                        <td>The plotting scripts default to a writable cache at <code>/tmp/datalab-matplotlib</code>. If setting <code>MPLCONFIGDIR</code> yourself, choose a writable directory.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <p>
+            The project assignment is in <code>repossitory/project_assignment.md</code>.
+            The script-specific notes are in <code>docs/osu_assignment_plots.md</code>.
+        Scientific references are
+            <a href="https://doi.org/10.1038/sdata.2016.13"
+               target="_blank"
+               rel="noopener">Risien and Strub (2016), the blended SLA dataset</a>
+            and <a href="https://doi.org/10.1002/2015JC011371"
+                   target="_blank"
+                   rel="noopener">Escudier et al. (2016), the comparative eddy analysis</a>.
+            See the <a href="{% url 'chelton_methodology' %}">Chelton</a>,
+            <a href="{% url 'nencioli_methodology' %}">Nencioli</a>,
+            <a href="{% url 'halo_methodology' %}">Halo</a>, and
+            <a href="{% url 'comparison_methodology' %}">Comparison</a>
+        methodology pages for detailed acceptance rules and reconstruction choices.
+        </p>
+        <p><a href="{% url 'welcome' %}">← Return to the project overview</a></p>
+    </section>
+{% endblock %}

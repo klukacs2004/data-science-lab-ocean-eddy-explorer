@@ -1,0 +1,65 @@
+<details id="diagnostics" open>
+    <summary>Candidate diagnostics and rejection reasons</summary>
+    <p>Each loop is listed under its first failed selection check. Nested duplicates are eligible loops superseded by a larger loop for the same core.</p>
+    <div class="table-scroll">
+        <table>
+            <thead>
+                <tr>
+                    <th>First failed check</th>
+                    <th>Candidates</th>
+                </tr>
+            </thead>
+            <tbody>{% for item in diagnostic_summary.reasons %}<tr><td>{{ item.label }}</td><td>{{ item.count }}</td></tr>{% empty %}<tr><td colspan="2" class="empty-table-cell">No rejected candidates.</td></tr>{% endfor %}</tbody>
+        </table>
+    </div>
+    <div class="diagnostic-controls">
+        <div>
+            <label for="candidate-filter">Status</label><select id="candidate-filter">
+                <option value="all">All candidates</option>
+                <option value="accepted">Accepted</option>
+                <option value="rejected">Rejected</option>
+            </select>
+        </div>
+        <div><label for="reason-filter">Decision</label><select id="reason-filter"><option value="all">All decisions</option><option value="accepted">Accepted</option>{% for item in diagnostic_summary.reasons %}<option value="{{ item.key }}">{{ item.label }}</option>{% endfor %}</select></div>
+        <button type="button"
+                id="download-candidates"
+                class="secondary-button">Download candidate CSV</button>
+    </div>
+    <p id="candidate-count" class="note" role="status" aria-live="polite">
+    </p>
+    <div class="table-scroll candidate-scroll">
+        <table id="candidate-table">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Status</th>
+                    <th>Decision</th>
+                    <th>SLA level [cm]</th>
+                    <th>Diameter [km]</th>
+                    <th>Enclosed core IDs</th>
+                    <th>Inspect</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for candidate in diagnostics %}
+                    <tr data-status="{{ candidate.status }}"
+                        data-reason="{{ candidate.reason }}">
+                        <td>{{ candidate.id }}</td>
+                        <td><span class="badge {{ candidate.status }}">{{ candidate.status|capfirst }}</span></td>
+                        <td title="{{ candidate.explanation }}">{{ candidate.reason_label }}</td>
+                        <td>{{ candidate.level_cm|floatformat:2 }}</td>
+                        <td>{{ candidate.diameter_km|floatformat:2 }}</td>
+                        <td>{{ candidate.region_ids|join:", "|default:"—" }}</td>
+                        <td>
+                            <button class="table-button"
+                                    type="submit"
+                                    form="analysis-form"
+                                    name="inspect_candidate"
+                                    value="{{ candidate.id }}">Inspect {{ candidate.id }}</button>
+                        </td>
+                    </tr>
+                {% empty %}<tr><td colspan="7" class="empty-table-cell">No closed loops within the diameter limit. Try another date or contour interval.</td></tr>{% endfor %}</tbody>
+        </table>
+    </div>
+    <p id="filter-empty" hidden>No candidates match these filters.</p>
+</details>

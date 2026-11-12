@@ -1,0 +1,319 @@
+{% extends "explorer/method_base.html" %}
+{% load static %}
+{% block title %}Compare methods · Ocean Eddy Explorer{% endblock %}
+{% block brand %}Method Comparison{% endblock %}
+{% block submit_label %}Run comparison{% endblock %}
+{% block extra_css %}
+    <link rel="stylesheet" href="{% static 'explorer/comparison.css' %}?v=8">
+{% endblock %}
+{% block page_title %}<span id="comparison-page-title">{% if tracking_requested %}Compare eddy tracking methods{% else %}Compare eddy detection methods{% endif %}</span>{% endblock %}
+{% block analysis_scope %}Daily detection / period tracking{% endblock %}
+{% block page_introduction %}<span id="comparison-introduction">{% if tracking_requested %}Track Chelton, Nencioli, and Halo eddies over the same period. Compare observed spans and sizes, then inspect radius evolution within the same span classes.{% else %}Run all three methods on the same daily grid. Compare their boundaries, match detections between methods, and inspect counts and contour-based sizes.{% endif %}</span>{% endblock %}
+{% block form_content %}
+    <div class="form-field"><label for="comparison-mode">Comparison</label><select id="comparison-mode"
+                                                                                   name="comparison_mode"
+                                                                                   aria-controls="comparison-tracking-controls"
+                                                                                   aria-describedby="comparison-mode-help"><option value="daily">Daily detection</option><option value="tracking" {% if tracking_requested %}selected{% endif %}>Tracking · Figures 7 and 8</option></select></div>
+    <p class="note" id="comparison-mode-help">Daily detection compares one grid. Tracking compares the same consecutive period for all three methods.</p>
+    <div id="comparison-tracking-controls"
+         {% if not tracking_requested %}hidden{% endif %}>
+        <div class="form-field">{{ tracking_form.duration_days.as_field_group }}</div>
+        <div class="form-field">{{ tracking_form.min_count.as_field_group }}</div>
+        <div class="form-field">{{ tracking_form.include_censored.as_field_group }}</div>
+        <p id="comparison-period" class="note" role="status" aria-live="polite">
+        </p>
+        <p class="note">Tracking runs in the background using each method’s existing association settings, retaining spans from one day. You can leave this page and return to the saved run link.</p>
+        <p class="note">Changing the minimum contributor count or boundary-track inclusion reuses the completed run.</p>
+    </div>
+    <p class="eyebrow">Detection settings · applied to the shared input</p>
+    <details open>
+        <summary>Chelton · full threshold scan</summary>
+        <div class="form-field">{{ form.filter_mode.as_field_group }}</div>
+        <div class="form-field" id="sigma-control">{{ form.sigma_cells.as_field_group }}</div>
+        <p class="note">Both polarities, −100 to +100 cm in 1 cm steps. Default: use the same unfiltered SLA as Halo.</p>
+    </details>
+    <details open>
+        <summary>Nencioli · velocity geometry</summary>
+        <div class="date-row">
+            <div class="form-field">{{ form.a.as_field_group }}</div>
+            <div class="form-field">{{ form.b.as_field_group }}</div>
+        </div>
+        <div class="parameter-presets">
+            <button type="button" class="secondary-button" data-parameters="4,3">Paper example: a=4, b=3</button><button type="button" class="secondary-button" data-parameters="2,2">Try smaller scales: a=2, b=2</button>
+        </div>
+    </details>
+    <details>
+        <summary>Halo / Okubo–Weiss · hybrid</summary>
+        <div class="form-field">{{ form.contour_interval_cm.as_field_group }}</div>
+        <div class="form-field">{{ form.max_diameter_km.as_field_group }}</div>
+        <div class="form-field">{{ form.filter_passes.as_field_group }}</div>
+        <p class="note">Defaults: 2 cm · 600 km · two Hanning passes on W. No height filtering.</p>
+    </details>
+{% endblock %}
+{% block page_content %}
+    <div class="comparison-results">
+        {% if comparison_job %}
+            <section class="panel comparison-job"
+                     id="comparison-job"
+                     data-status-url="{% url 'comparison_job_status' comparison_job.id %}"
+                     data-status="{{ comparison_job.status }}"
+                     aria-labelledby="comparison-job-title">
+                <div class="panel-head"><h2 id="comparison-job-title">{% if job_pending %}Tracking comparison in progress{% elif job_failed %}Tracking comparison could not finish{% else %}Saved tracking comparison{% endif %}</h2><span class="eyebrow">{{ comparison_job.parameters.day }} · {{ comparison_job.parameters.duration_days }} days</span></div>
+                <p id="comparison-job-message"
+                   role="status"
+                   aria-live="polite">{{ comparison_job.message }}</p>
+                <progress id="comparison-job-progress"
+                          max="{{ comparison_job.total }}"
+                          value="{{ comparison_job.completed }}"
+                          aria-label="Tracking comparison progress"></progress>
+                <p class="note"
+                   id="comparison-job-cache">Daily detection results reused: {{ comparison_job.cache_hits }}</p>
+                <p class="note">Processing continues if you close or refresh the page. <a href="{{ request.get_full_path }}">Return to this run</a> — bookmark this link to reopen it later.</p>
+                {% if job_failed %}<p>Use the comparison button to retry. Completed daily detections will be reused.</p>{% endif %}
+                {% if job_pending %}<noscript>Reload this page to check progress and open the results when ready.</noscript>{% endif %}
+            </section>
+        {% endif %}
+        <section class="comparison-workflow" aria-label="Comparison workflow">
+            <div><span class="eyebrow">1 · Shared input</span><p id="comparison-input-description">{% if tracking_requested %}One start date and period for all methods.{% else %}One date and daily grid for all methods.{% endif %}</p></div>
+            <div>
+                <span class="eyebrow">2 · Method settings</span>
+                <p>Each method uses its own detection rules with a shared contour-area radius definition.</p>
+            </div>
+            <div><span class="eyebrow">3 · Compare results</span><p id="comparison-output-description">{% if tracking_requested %}Size and span distributions, then radius evolution.{% else %}Boundaries, geometric matches, counts, and sizes.{% endif %}</p></div>
+        </section>
+        <nav class="result-nav" aria-label="Comparison sections">
+            <a href="{% url 'comparison_methodology' %}">Methodology</a>
+            {% if ran %}<a href="#overview">Combined map</a><a href="#matching">Match eddies</a><a href="#statistics">Statistics</a><a href="#detections">Detection table</a>{% endif %}
+            {% if tracking_ran %}<a href="#tracking-overview">Tracking summary</a><a href="#tracking-distributions">Figure 7 · Distributions</a><a href="#tracking-evolution">Figure 8 · Radius evolution</a>{% endif %}
+            <a href="#definitions">How to interpret the comparison</a>
+        </nav>
+        {% if tracking_ran %}
+            <section class="panel" id="tracking-overview">
+                <div class="panel-head">
+                    <h2>Tracking comparison</h2>
+                    <span class="eyebrow">{{ tracking_settings.day|date:"Y-m-d" }} – {{ tracking_end|date:"Y-m-d" }}</span>
+                </div>
+                <p>Chelton background removal: {{ tracking_settings.filter_mode }} · Nencioli: a={{ tracking_settings.a }}, b={{ tracking_settings.b }} · Halo: {{ tracking_settings.contour_interval_cm }} cm, {{ tracking_settings.max_diameter_km }} km, {{ tracking_settings.filter_passes }} Hanning passes.</p>
+                <div class="table-scroll"><table><thead><tr><th>Method</th><th>All tracks · Figure 7</th><th>Complete within period</th><th>Boundary-censored</th><th>Reliable radius observations</th></tr></thead><tbody>{% for item in tracking_summaries %}<tr><td><span class="method-dot" style="background:{{ item.color }}"></span>{{ item.label }}</td><td>{{ item.tracks }}</td><td>{{ item.complete }}</td><td>{{ item.censored }}</td><td>{{ item.observations }}</td></tr>{% endfor %}</tbody></table></div>
+                <details><summary>Association settings used for this comparison</summary><p>Each method retains spans from one day. Existing search, matching, and gap rules are used independently within each method.</p><div class="comparison-method-settings">{% for item in tracking_summaries %}<div><h3>{{ item.label }}</h3><dl>{% for parameter in item.parameters %}<dt>{{ parameter.label }}</dt><dd>{{ parameter.value|default_if_none:"None" }}</dd>{% endfor %}</dl></div>{% endfor %}</div></details>
+                <p class="note">Spans touching either boundary are censored: they may continue beyond the selected period. The lower distribution shows observed spans, not exact lifetimes. Hover for values, toggle curves in the legend, drag to zoom, and double-click to reset. Use the toolbar to save an image.</p>
+            </section>
+            <section class="panel" id="tracking-distributions">
+                <div class="panel-head">
+                    <h2>Figure 7 · Size and span distributions</h2>
+                    <span class="eyebrow">All three methods</span>
+                </div>
+                <p>Radius percentages use all reliable daily detections in 2 km bins. Upper-tail percentages use all tracks, including single-day and boundary-censored tracks. The span axis fits curves above the 0.3% display floor.</p>
+                <div class="comparison-charts">{{ figure7_html|safe }}</div>
+            </section>
+            <section class="panel" id="tracking-evolution"><div class="panel-head"><h2>Figure 8 · Radius evolution</h2><span class="eyebrow">{{ tracking_settings.min_count }} tracks per bin</span></div><p>Absolute radius versus age scaled by observed span and the lifetime-class midpoint. Each one-day display bin weights tracks equally. Gaps indicate insufficient contributors; empty classes have no curve. {% if tracking_settings.include_censored %}Boundary-censored tracks are included.{% else %}Tracks touching either period boundary are excluded.{% endif %}</p><div class="comparison-charts evolution-charts">{{ figure8_html|safe }}</div></section>
+        {% endif %}
+        {% if ran %}
+            <section class="stats" aria-label="Accepted detections by method">
+                {% for item in summary %}<div class="stat" style="border-top:3px solid {{ item.color }}"><span>{{ item.label }}</span><strong>{{ item.count }}</strong><span>accepted detections</span></div>{% endfor %}
+            </section>
+            <section class="panel" id="overview" aria-labelledby="overview-title">
+                <div class="panel-head">
+                    <h2 id="overview-title">Detections on the same field</h2>
+                    <span class="eyebrow">{{ run_settings.day|date:"Y-m-d" }}</span>
+                </div>
+                <p>Chelton: {{ filtering.label|lower }} · Nencioli: a={{ run_settings.a }}, b={{ run_settings.b }} · Halo: {{ run_settings.contour_interval_cm }} cm, {{ run_settings.max_diameter_km }} km, {{ run_settings.filter_passes }} Hanning passes.</p>
+                {% if not detections %}<p class="explanation">None of the methods accepted a detection on this date with these settings. Try another date or adjust the search parameters.</p>{% endif %}
+                <div class="interactive-map">{{ map_html|safe }}</div>
+                <div class="download-links">
+                    <button type="button"
+                            id="download-detection-map">Download detection map</button>
+                </div>
+                <p>Green: Chelton · Purple: Nencioli · Orange: Halo / Okubo–Weiss. Click a legend item to toggle that method's boundaries and markers. Hover for measurements; click a marker to locate its table row. Scroll or pinch to zoom.</p>
+                <p class="note">The background is the original SLA for all methods. Axes show longitude and latitude in degrees; the colour scale shows SLA in centimetres.</p>
+                <p class="note">Dark arrows show geostrophic velocity at every second grid point, using the same 72-hour visual scale as the welcome map. Arrow direction shows flow; length represents 72 hours at that velocity, rather than a predicted trajectory. Toggle “Geostrophic velocity” in the legend or hover at arrow origins for velocity components and speed.</p>
+            </section>
+            <section class="panel" id="matching" aria-labelledby="matching-title">
+                <h2 id="matching-title">Match same-day detections between methods</h2>
+                <p>Each row proposes that two methods detected the same eddy on {{ run_settings.day|date:"Y-m-d" }}: for example, Chelton detection 12 and Halo detection 7. A and B are method-specific detections, not successive dates or track IDs. Click either detection to find its measurements below.</p>
+                <p>Compare standardized centers by great-circle distance and enclosed contours by intersection over union: IoU(A, B) = Area(A ∩ B) / Area(A ∪ B). An IoU of 0 means no area overlap; 1 means identical areas.</p>
+                <div class="diagnostic-controls">
+                    <div>
+                        <label for="match-methods">Method pair</label><select id="match-methods">
+                            <option value="all">All method pairs</option>
+                            <option value="chelton,nencioli">Chelton ↔ Nencioli</option>
+                            <option value="chelton,okubo_weiss">Chelton ↔ Halo</option>
+                            <option value="nencioli,okubo_weiss">Nencioli ↔ Halo</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="match-distance">Maximum center distance [km]</label><input id="match-distance"
+                                                                                               type="number"
+                                                                                               min="0"
+                                                                                               step="any"
+                                                                                               value="100"
+                                                                                               required>
+                    </div>
+                    <div>
+                        <label for="match-iou">Minimum IoU [0–1]</label><input id="match-iou"
+                                                                               type="number"
+                                                                               min="0"
+                                                                               max="1"
+                                                                               step="any"
+                                                                               value="0.1"
+                                                                               required>
+                    </div>
+                    <div>
+                        <label class="match-polarity-option" for="match-unknown">
+                            <input id="match-unknown" type="checkbox">Include unresolved polarity
+                        </label>
+                    </div>
+                    <button id="download-matches"
+                            type="button"
+                            class="secondary-button">Download matching pairs CSV</button>
+                </div>
+                <p id="match-count" role="status" aria-live="polite">
+                </p>
+                <div class="table-scroll candidate-scroll">
+                    <table id="match-table">
+                        <thead>
+                            <tr>
+                                <th>Detection A</th>
+                                <th>Detection B</th>
+                                <th>Center distance [km]</th>
+                                <th>IoU</th>
+                                <th>Polarities A / B</th>
+                                <th>Polarity check</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        </tbody>
+                    </table>
+                </div>
+                <p class="note">Both thresholds are inclusive. Defaults (100 km, 0.1 IoU) are exploratory. Pairs must have known, agreeing polarities by default. “Include unresolved polarity” also permits pairs with at least one unknown value; these remain explicitly unresolved. Opposite known polarities never match.</p>
+                <p class="note">Eligible pairs are sorted by decreasing IoU, then increasing center distance. Greedy assignment uses each detection once within each method pair. With “All method pairs”, one Chelton detection may therefore match both a Nencioli detection and a Halo detection in separate rows; this does not establish a consistent three-method group. Invalid contours have unavailable IoU and are excluded. Areas use spherical great-circle contour edges. These are geometric proposals, not independently verified eddy identities or temporal tracks. Adjusting thresholds does not rerun detection.</p>
+                <noscript>Enable JavaScript to filter and download matching pairs.</noscript>
+            </section>
+        {{ match_rows|json_script:"matching-data" }}
+            <section class="panel" id="statistics" aria-labelledby="statistics-title">
+                <div class="panel-head">
+                    <h2 id="statistics-title">Basic statistics</h2>
+                    <span class="eyebrow">Shared size definition</span>
+                </div>
+                <p>Every radius is √(contour area / π), calculated from standardized spherical polygons. Empty results have a count of zero and unavailable size statistics (—).</p>
+                <div class="comparison-charts">{{ statistics_html|safe }}</div>
+                <div class="table-scroll">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Method</th>
+                                <th>Count</th>
+                                <th>Cyclonic</th>
+                                <th>Anticyclonic</th>
+                                <th>Unknown</th>
+                                <th>Mean radius [km]</th>
+                                <th>Median radius [km]</th>
+                                <th>Min–max radius [km]</th>
+                                <th>Mean area [km²]</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in summary %}
+                                <tr>
+                                    <td>{{ item.label }}</td>
+                                    <td>{{ item.count }}</td>
+                                    <td>{{ item.cyclonic }}</td>
+                                    <td>{{ item.anticyclonic }}</td>
+                                    <td>{{ item.unknown }}</td>
+                                    <td>{{ item.mean_radius_km|floatformat:2|default_if_none:"—"|default:"—" }}</td>
+                                    <td>{{ item.median_radius_km|floatformat:2|default:"—" }}</td>
+                                    <td>{% if item.count %}{{ item.min_radius_km|floatformat:2 }}–{{ item.max_radius_km|floatformat:2 }}{% else %}—{% endif %}</td>
+                                    <td>{{ item.mean_area_km2|floatformat:1|default:"—" }}</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <button type="button"
+                        id="download-statistics"
+                        class="secondary-button">Download basic statistics CSV</button>
+            {{ summary|json_script:"comparison-summary-data" }}
+                <p class="note">Counts and statistics always describe the full run. Map visibility and table filters do not recompute them. More detections do not establish greater accuracy.</p>
+            </section>
+            <section class="panel" id="detections" aria-labelledby="detections-title">
+                <div class="panel-head">
+                    <h2 id="detections-title">Standardized detections</h2>
+                    <span class="eyebrow">{{ detections|length }} rows</span>
+                </div>
+                <div class="diagnostic-controls">
+                    <div><label for="method-filter">Method</label><select id="method-filter"><option value="all">All methods</option>{% for item in summary %}<option value="{{ item.key }}">{{ item.label }}</option>{% endfor %}</select></div>
+                    <div>
+                        <label for="polarity-filter">Polarity</label><select id="polarity-filter">
+                            <option value="all">All polarities</option>
+                            <option value="cyclonic">Cyclonic</option>
+                            <option value="anticyclonic">Anticyclonic</option>
+                            <option value="unknown">Unknown</option>
+                        </select>
+                    </div>
+                    <button type="button"
+                            id="download-comparison"
+                            class="secondary-button"
+                            {% if not detections %}disabled{% endif %}>Download all detections CSV</button>
+                </div>
+                <p id="detection-count" class="note" role="status" aria-live="polite">
+                </p>
+                <div class="table-scroll candidate-scroll">
+                    <table id="comparison-table">
+                        <thead>
+                            <tr>
+                                <th>Method</th>
+                                <th>Local ID</th>
+                                <th>Polarity</th>
+                                <th>Polarity evidence</th>
+                                <th>Latitude [°N]</th>
+                                <th>Longitude [°E]</th>
+                                <th>Area radius [km]</th>
+                                <th>Area [km²]</th>
+                                <th>Native amplitude [cm]</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for e in detection_rows %}
+                                <tr id="detection-{{ e.method }}-{{ e.id }}"
+                                    data-method="{{ e.method }}"
+                                    data-polarity="{{ e.polarity }}">
+                                    <td>{{ e.method_label }}</td>
+                                    <td>{{ e.id }}</td>
+                                    <td>{{ e.polarity|capfirst }}</td>
+                                    <td>{{ e.polarity_source }}</td>
+                                    <td>{{ e.latitude|floatformat:3 }}</td>
+                                    <td>{{ e.longitude|floatformat:3 }}</td>
+                                    <td>{{ e.radius_km|floatformat:2 }}</td>
+                                    <td>{{ e.area_km2|floatformat:1 }}</td>
+                                    <td>{{ e.amplitude_cm|floatformat:2|default:"—" }}</td>
+                                </tr>{% empty %}<tr><td colspan="9" class="empty-table-cell">No accepted detections for these settings.</td></tr>{% endfor %}</tbody>
+                        </table>
+                    </div>
+                    <p id="filter-empty" hidden>No detections match these filters.</p>
+                    <p class="note">Local IDs belong to their own method and date. Equal IDs and overlapping contours do not imply that the methods detected the same eddy. CSV includes all rows, plus the native Nencioli center when available.</p>
+                </section>
+        {{ detection_rows|json_script:"comparison-data" }}
+        {% elif not tracking_ran and not comparison_job %}
+            <section class="empty"><span class="eyebrow">Run a shared experiment</span><h2 id="comparison-empty-title">{% if tracking_requested %}One period, three tracking methods{% else %}One day, three detection methods{% endif %}</h2><p id="comparison-empty-description">{% if tracking_requested %}Choose an available start date and up to 365 days. Run the comparison to see span and size distributions and radius evolution. Short periods may have no complete tracks in the longer span classes.{% else %}Choose a date and run the comparison to inspect accepted boundaries, geometric matches, counts, and sizes.{% endif %}</p></section>
+        {% endif %}
+        <section class="panel" id="definitions" aria-labelledby="definitions-title">
+            <div class="panel-head">
+                <h2 id="definitions-title">What is being compared?</h2>
+                <span class="eyebrow">Definitions and scope</span>
+            </div>
+            <p>All methods load the same daily SLA and geostrophic velocity grid. Chelton scans both polarities; Nencioli detects velocity centers and estimates boundaries; this project's Okubo–Weiss method is the Halo hybrid of negative W and closed height contours.</p>
+            <p>Standardization uses the same contour-based area and area-equivalent radius for every method. Map locations are spherical means of boundary vertices, rather than native dynamical centers. Nencioli's circular fallback, when accepted, remains an estimated boundary.</p>
+            <p>Chelton polarity comes from SLA maxima/minima; Nencioli uses velocity rotation and hemisphere. For this daily comparison, Halo polarity comes from the area-weighted mean signed relative vorticity strictly inside its contour: ζ = ∂v/∂x − ∂u/∂y. In the Northern Hemisphere positive means cyclonic and negative anticyclonic; the classification reverses in the Southern Hemisphere. W alone has no rotation sign. Missing interior samples, a zero or nonfinite mean, or an equator-touching or crossing Halo contour retain unknown polarity; the evidence column explains why. A nonzero mean is a classification, not a calibrated confidence estimate.</p>
+            <p>Only Chelton supplies native amplitude, so amplitudes are not summarized across methods. Halo's use here with SLA is an adaptation of the paper's absolute-SSH method. The detections CSV includes polarity evidence and Halo mean relative vorticity in s⁻¹.</p>
+            <p>Optional Chelton background removal changes its detection field; the combined map still displays the original SLA. Pairwise geometric matching compares snapshot detections. Daily mode performs no tracking or lifetime filtering. Tracking mode reuses the existing method trackers over the chosen period. These comparisons are not validation against independent labels.</p>
+            <div class="method-actions"><a href="{% url 'chelton_detection' %}">Chelton explorer →</a><a href="{% url 'nencioli_detection' %}">Nencioli explorer →</a><a href="{% url 'halo_detection' %}">Halo explorer →</a></div>
+        </section>
+    </div>
+{% endblock %}
+{% block footer %}Shared input · Three methods · Standardized contour geometry{% endblock %}
+{% block extra_js %}
+    <span id="comparison-state"
+          hidden
+          data-dates-url="{% url 'available_dates' %}"
+          data-date="{{ run_settings.day|date:'Y-m-d' }}"></span><script src="{% static 'explorer/comparison.js' %}?v=9" defer></script>
+{% endblock %}

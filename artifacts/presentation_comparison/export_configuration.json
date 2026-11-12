@@ -1,0 +1,81 @@
+{
+  "source": "/home/klukacs/ELTE/DataLab/artifacts/osu_assignment_1993_2012",
+  "start": "1993-01-01",
+  "end": "2012-12-31",
+  "min_tracks_per_age_bin": 20,
+  "include_censored_cycles": false,
+  "pixels": [
+    3840,
+    2160
+  ],
+  "dpi": 240,
+  "axis_limits": {
+    "figure7_radius": {
+      "x": [
+        0,
+        100
+      ],
+      "y": [
+        0,
+        18
+      ]
+    },
+    "figure7_span": {
+      "x": [
+        0,
+        250
+      ],
+      "y": [
+        0.3,
+        100
+      ],
+      "yscale": "log"
+    },
+    "figure8": {
+      "x": [
+        0,
+        225
+      ],
+      "y": [
+        17.5,
+        65
+      ]
+    }
+  },
+  "style": {
+    "font.family": "DejaVu Sans",
+    "font.size": 18,
+    "axes.titlesize": 25,
+    "axes.titleweight": "bold",
+    "axes.labelsize": 24,
+    "axes.labelcolor": "#172f43",
+    "axes.edgecolor": "#8c9ba7",
+    "axes.linewidth": 1.2,
+    "axes.spines.top": false,
+    "axes.spines.right": false,
+    "xtick.labelsize": 18,
+    "ytick.labelsize": 18,
+    "xtick.color": "#536879",
+    "ytick.color": "#536879",
+    "text.color": "#172f43",
+    "lines.linewidth": 2.6,
+    "legend.fontsize": 18,
+    "legend.frameon": false,
+    "savefig.facecolor": "white"
+  },
+  "paper_doi": "10.1002/2015JC011371",
+  "paper_pdf_pages": [
+    9,
+    10
+  ],
+  "source_sha256": {
+    "figure7_radius_data.csv": "a502461530a56f993d488ce50b67cff5964544bd2424f7751b3ba5251b0c1da4",
+    "figure7_survival_data.csv": "9726f57f1c0271fb525793042463e656d66bf55efcd2b0a0a6c645d7f22da7d7",
+    "figure8_data.csv": "66f35fd1c28557d6ae91885acaa07ab5376af6390b0f828ffeeda3da30d1a261"
+  },
+  "figure8_above_65_km": {
+    "Chelton": 426,
+    "Nencioli": 0,
+    "Halo": 67
+  }
+}

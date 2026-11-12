@@ -1,0 +1,101 @@
+{% extends "explorer/method_base.html" %}
+{% load static %}
+{% block title %}Nencioli Eddy Tracking Explorer{% endblock %}
+{% block brand %}Nencioli Tracking{% endblock %}
+{% block analysis_scope %}Multi-day tracking{% endblock %}
+{% block extra_css %}
+    <link rel="stylesheet" href="{% static 'explorer/nencioli.css' %}?v=7">
+    <link rel="stylesheet" href="{% static 'explorer/tracking.css' %}?v=7">
+{% endblock %}
+{% block page_title %}Track Nencioli eddies across days{% endblock %}
+{% block page_introduction %}Follow velocity-based centers through consecutive daily fields. Inspect trajectories, one-day detection gaps, and the lifetimes of accepted tracks.{% endblock %}
+{% block submit_label %}Run tracking{% endblock %}
+{% block form_content %}
+    <div class="form-field">{{ form.duration_days.as_field_group }}</div>
+    <div class="form-field">{{ form.a.as_field_group }}</div>
+    <div class="form-field">{{ form.b.as_field_group }}</div>
+    <p class="note">a tests velocity growth and circulation; b sets the local-minimum search window. Both use grid cells.</p>
+    <div class="form-field">{{ form.daily_radius_km.as_field_group }}</div>
+    <div class="form-field">{{ form.gap_radius_km.as_field_group }}</div>
+    <div class="form-field">{{ form.min_lifetime_days.as_field_group }}</div>
+    <p class="note">Processing runs in this request and may take a while for up to 30 daily fields.</p>
+{% endblock %}
+{% block page_content %}
+    <div class="nencioli-results">
+        <nav class="result-nav" aria-label="Tracking sections"><a href="{% if is_halo %}{% url 'halo_detection' %}{% elif is_chelton %}{% url 'chelton_detection' %}{% else %}{% url 'nencioli_detection' %}{% endif %}">← Detection explorer</a>{% if ran %}<a href="#trajectories">Trajectories</a><a href="#tracks">Track table</a>{% endif %}<a href="#tracking-method">How tracking works</a></nav>
+        {% if ran %}
+            <p>{{ run_settings.day|date:"Y-m-d" }} to {{ end_day|date:"Y-m-d" }} {% if is_halo %}· Contour interval {{ run_settings.contour_interval_cm }} cm · Maximum diameter {{ run_settings.max_diameter_km }} km · {{ run_settings.filter_passes }} Hanning passes · Position / diameter scales {{ run_settings.position_scale_km }} / {{ run_settings.diameter_scale_km }} km · Vorticity scale {{ run_settings.vorticity_scale_s }} s⁻¹ · Maximum daily displacement {{ run_settings.max_displacement_km }} km · Score cutoff {{ run_settings.max_generalized_distance|default_if_none:"None" }} · {{ run_settings.assignment_method }} assignment · Gap days {{ run_settings.max_gap_days }} · Velocity smoothing {{ run_settings.velocity_smoothing_passes }} passes · Vorticity floor {{ run_settings.minimum_abs_vorticity_s }} s⁻¹{% elif is_chelton %}· Full threshold scan · {{ run_settings.filter_mode }} filtering · East / west / north–south: {{ run_settings.east_km }} / {{ run_settings.west_km }} / {{ run_settings.north_south_km }} km · Amplitude ratios {{ run_settings.min_amplitude_ratio }}–{{ run_settings.max_amplitude_ratio }} · Area ratios {{ run_settings.min_area_ratio }}–{{ run_settings.max_area_ratio }}{% else %}· a={{ run_settings.a }}, b={{ run_settings.b }} · Daily radius {{ run_settings.daily_radius_km }} km · Gap radius {{ run_settings.gap_radius_km }} km{% endif %} · Minimum lifetime {{ run_settings.min_lifetime_days }} days.</p>
+            {% if missing_days %}<section class="panel" role="status"><h2>Unavailable source dates</h2><p>These dates were treated as empty days; no observations were fabricated. {% if is_halo and run_settings.max_gap_days %}A track can bridge one missing day under the configured gap constraints.{% elif is_chelton or is_halo %}A missing detection day closes a track; no gap recovery is performed.{% else %}A track can bridge only one missing detection day.{% endif %}</p><p>{% for day in missing_days %}{{ day|date:"Y-m-d" }}{% if not forloop.last %}, {% endif %}{% endfor %}</p></section>{% endif %}
+            {% if is_halo and vorticity_exclusions %}
+                <section class="panel" aria-labelledby="vorticity-exclusions-title">
+                    <h2 id="vorticity-exclusions-title">Vorticity quality exclusions</h2>
+                    <p>{{ vorticity_exclusions|length }} accepted daily detections were excluded from tracking because representative vorticity was unavailable or did not exceed the configured reliability floor. These are not detector rejections.</p>
+                    <details><summary>Excluded dates and local detection IDs</summary><ul>{% for item in vorticity_exclusions %}<li>{{ item.date|date:"Y-m-d" }} · Detection {{ item.id }}: {{ item.reason }}</li>{% endfor %}</ul></details>
+                </section>
+            {% endif %}
+            {% if is_halo and recovered_gap_links %}
+                <section class="panel">
+                    <h2>Recovered gap links</h2>
+                    <p>{{ recovered_gap_links|length }} links bridge a missing observation day. Spans include missing days; observation counts do not.</p>
+                    <ul>{% for link in recovered_gap_links %}<li>Track {{ link.track_id }}: {{ link.first_date|date:"Y-m-d" }} → {{ link.second_date|date:"Y-m-d" }}; missing {{ link.missing_date|date:"Y-m-d" }}; {{ link.displacement_km|floatformat:2 }} km total; score {{ link.score|floatformat:3 }}.</li>{% endfor %}</ul>
+                </section>
+            {% endif %}
+            <section class="stats tracking-stats" aria-label="Accepted track statistics">
+                <div class="stat"><span>Total tracks</span><strong>{{ tracking_summary.total }}</strong></div>
+                <div class="stat"><span>Cyclonic / anticyclonic</span><strong>{{ tracking_summary.cyclonic }} / {{ tracking_summary.anticyclonic }}</strong><span>{{ tracking_summary.unknown }} unknown</span></div>
+                <div class="stat"><span>{% if is_halo %}Mean observed span [days]{% else %}Mean lifetime [days]{% endif %}</span><strong>{{ tracking_summary.mean_lifetime|floatformat:1|default_if_none:"—"|default:"—" }}</strong></div>
+                <div class="stat"><span>{% if is_halo %}Maximum observed span [days]{% else %}Maximum lifetime [days]{% endif %}</span><strong>{{ tracking_summary.max_lifetime|default_if_none:"—" }}</strong></div>
+                <div class="stat"><span>Observations in accepted tracks</span><strong>{{ tracking_summary.observations }}</strong></div>
+            </section>
+            <section class="panel" aria-labelledby="center-diagnostics-title">
+                <h2 id="center-diagnostics-title">Repeated detection centers</h2>
+                <p>{{ center_diagnostics.single_center_tracks }} of {{ center_diagnostics.comparable_tracks }} accepted tracks with at least two observations use one identical center throughout. {{ center_diagnostics.identical_adjacent_pairs }} of {{ center_diagnostics.adjacent_pairs }} consecutive-calendar-day observation pairs have identical centers (gap connections excluded).</p>
+                <p class="note">Repeated coordinates mean the detector assigned the same location on those days; they do not establish that the physical eddy was stationary. {% if is_chelton or is_halo %}Standardized contour centers are spherical means of contour vertices. Repeats warrant examining contour geometry, grid resolution, and filtering.{% else %}Native centers lie on the dataset grid. Frequent repeats may reflect grid resolution and warrant examining detection parameters and velocity fields.{% endif %} These counts cover accepted tracks in this run, not all detections.</p>
+            </section>
+            {% if tracks %}
+                <section class="panel" id="trajectories" aria-labelledby="trajectory-title">
+                    <h2 id="trajectory-title">Daily centers and trajectories</h2>
+                    <div class="tracking-controls"><label for="track-selector">Inspect track</label><select id="track-selector"><option value="all">All tracks</option>{% for track in track_rows %}<option value="{{ track.id }}">Track {{ track.id }} · {{ track.polarity }}</option>{% endfor %}</select></div>
+                    <div class="interactive-map">{{ map_html|safe }}</div>
+                    <p>Circles: cyclonic · Diamonds: anticyclonic · Squares: unknown. Markers are observations. Solid lines connect adjacent days.{% if not is_chelton and not is_halo or is_halo and run_settings.max_gap_days %} Dashed lines bridge a missing detection day and do not represent an observation.{% endif %} Hover for daily measurements. Click a track to zoom in, or choose it from the selector or table. Choose “All tracks” to restore the overview. Click a legend item to toggle a track, or double-click to isolate it.</p>
+                    <p class="note">Grid points show actual dataset centers whose SLA is not NaN on {{ dataset_grid.date|date:"Y-m-d" }} (the first available day in this run). Locations with NaN SLA are omitted. Toggle “Dataset grid” in the legend to show or hide it.</p>
+                    <p class="note">Basemap: <a href="https://opentopomap.org" target="_blank" rel="noopener">OpenTopoMap</a> / <a href="https://www.openstreetmap.org/copyright"
+                                                                                                                                   target="_blank"
+                                                                                                                                   rel="noopener">OpenStreetMap</a>.</p>
+                    <p class="note">{% if is_chelton or is_halo %}Coordinates are standardized spherical means of contour vertices.{% else %}Coordinates prefer native Nencioli velocity centers, with standardized contour centers as fallback.{% endif %} Radius is the standardized area-equivalent contour radius.{% if not is_chelton and not is_halo %} Fallback circles describe constructed geometry, not physical eddy size; only streamfunction boundaries qualify for the separate radius correlation.{% endif %}</p>
+                </section>
+                <section class="panel" aria-labelledby="observation-title">
+                    <h2 id="observation-title">Selected track · daily center observations</h2>
+                    <p id="observation-status" role="status" aria-live="polite">Select a track on the main plot, in the selector, or in the table to inspect every observation date.</p>
+                    <div id="track-observations" hidden>
+                    </div>
+                    <p class="note">The time series shows assigned-center distance from the first observation, not physical eddy speed or cumulative path length. Repeated centers remain separate daily points, including at zero distance. Missing days have no observation and are not interpolated.</p>
+                </section>
+        {% else %}<section class="empty"><h2>No accepted tracks</h2><p>No trajectories met the minimum lifetime within this interval. Try another starting date, a longer duration, or adjust the detection and tracking parameters.</p></section>{% endif %}
+        <section class="panel" id="tracks" aria-labelledby="tracks-title">
+            <h2 id="tracks-title">Accepted tracks</h2>
+            <div class="table-scroll"><table id="track-table"><thead><tr><th>Track ID</th><th>Polarity</th><th>Start date</th><th>End date</th><th>{% if is_halo %}Observed span [days]{% else %}Lifetime [days]{% endif %}</th><th>Observations</th><th>Mean geometric radius [km]</th></tr></thead><tbody>
+                {% for track in track_rows %}<tr data-track-id="{{ track.id }}" id="track-{{ track.id }}"><td><button type="button"
+                                                                                                                      class="secondary-button"
+                                                                                                                      data-inspect-track="{{ track.id }}">Track {{ track.id }}</button></td><td>{{ track.polarity|capfirst }}</td><td>{{ track.start_date|date:"Y-m-d" }}</td><td>{{ track.end_date|date:"Y-m-d" }}</td><td>{{ track.lifetime_days }}{% if is_halo and not track.complete_within_window %} (window-censored){% endif %}</td><td>{{ track.observations }}</td><td>{{ track.mean_radius_km|floatformat:2 }}</td></tr>{% empty %}<tr><td colspan="7" class="empty-table-cell">No accepted tracks for these settings.</td></tr>{% endfor %}
+                </tbody>
+                </table>
+            </div>
+            </section>
+{% else %}<section class="empty"><span class="eyebrow">Run a multi-day experiment</span><h2>From daily detections to trajectories</h2><p>Choose a starting date and a duration of up to {{ form.duration_days.field.max_value }} days. Run tracking to see accepted trajectories and their lifetime statistics.</p></section>{% endif %}
+{% block tracking_method %}
+    <section class="panel" id="tracking-method">
+        <h2>How tracking works</h2>
+        <p>Each available daily velocity grid is processed independently by the existing Nencioli detector and standardized before tracking. The tracker links the nearest same-polarity center within the daily radius, then attempts a single-day gap within the gap radius. Each detection belongs to at most one track.</p>
+        <p>Lifetime is the inclusive calendar span from first to last observation, so it can exceed the number of observations when there are gaps. Statistics and the table describe accepted tracks over the full interval; selecting a track only changes the visualization.</p>
+        <p class="note">Search distances and greedy conflict resolution are practical adaptations of the Nencioli approach. They are not an exact reproduction of the paper's grid-window implementation. Tracks are limited by the selected date interval; a trajectory can begin before or continue after it.</p>
+    </section>
+{% endblock %}
+    </div>
+{% endblock %}
+{% block footer %}Daily Nencioli detections · Same-polarity center tracking · One-day gap recovery{% endblock %}
+{% block extra_js %}
+    <span id="tracking-state"
+          hidden
+          data-dates-url="{% url 'available_dates' %}"></span><script src="{% static 'explorer/tracking.js' %}" defer></script>
+{% endblock %}

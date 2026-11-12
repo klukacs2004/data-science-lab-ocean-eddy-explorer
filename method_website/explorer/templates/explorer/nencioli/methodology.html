@@ -1,0 +1,758 @@
+{% extends "explorer/methodology_base.html" %}
+
+{% block title %}
+    Nencioli Methodology · Ocean Eddy Explorer
+{% endblock %}
+
+{% block method_title %}
+    Nencioli-Based Eddy Detection and Tracking
+{% endblock %}
+
+{% block method_description %}
+    Velocity geometry, local streamfunction boundaries, and multi-day center association with explicit gap handling.
+{% endblock %}
+
+{% block methodology_toc %}
+    <h3>Contents</h3>
+    <a href="#introduction">1. Physical motivation</a>
+    <a href="#input">2. Velocity field and coordinates</a>
+    <details class="toc-group" open>
+        <summary>3. Detecting eddy centers</summary>
+        <div class="toc-subsections">
+            <a href="#ew-constraint">3.1 East–west velocity reversal</a>
+            <a href="#ns-constraint">3.2 North–south velocity reversal</a>
+            <a href="#minimum-constraint">3.3 Stable speed minimum</a>
+            <a href="#rotation-constraint">3.4 Consistent circulation</a>
+        </div>
+    </details>
+    <details class="toc-group">
+        <summary>4. Estimating eddy boundaries</summary>
+        <div class="toc-subsections">
+            <a href="#streamfunction">4.1 Local streamfunction</a>
+            <a href="#boundary-selection">4.2 Outermost growing contour</a>
+            <a href="#local-domain">4.3 Adaptive local domain</a>
+            <a href="#radius">4.4 Circular estimates and radius</a>
+        </div>
+    </details>
+    <a href="#parameters">5. Parameter sensitivity</a>
+    <a href="#diagnostics">6. Interpreting diagnostics</a>
+    <a href="#paper-differences">7. Comparison with the paper</a>
+    <details class="toc-group">
+        <summary>8. Tracking eddies across days</summary>
+        <div class="toc-subsections">
+            <a href="#tracking">8. Tracking overview</a>
+            <a href="#tracking-inputs">8.1 Daily detections and centers</a>
+            <a href="#tracking-distance">8.2 Search distance</a>
+            <a href="#tracking-assignment">8.3 Association and gaps</a>
+            <a href="#tracking-lifetime">8.4 Lifetime and controls</a>
+            <a href="#tracking-interpretation">8.5 Interpretation and limits</a>
+        </div>
+    </details>
+    <a href="{% url 'nencioli_detection' %}">Open the Nencioli explorer →</a>
+    <a href="{% url 'nencioli_tracker' %}">Open the Tracking Explorer →</a>
+{% endblock %}
+
+{% block methodology_content %}
+    <section id="introduction">
+        <h2>1. Physical motivation</h2>
+        <p>
+The Nencioli method identifies eddy centers from the geometry of horizontal
+        velocity vectors. A rotating flow usually has a low-speed core, opposite
+        velocity components on opposite sides of that core, and coherent circulation
+        around it. Four constraints test these properties in sequence.
+        </p>
+        <p>
+Reference: <a href="https://doi.org/10.1175/2009JTECHO725.1">Nencioli, Dong,
+        Dickey, Washburn and McWilliams (2010), A Vector Geometry–Based Eddy Detection
+        Algorithm and Its Application to a High-Resolution Numerical Model Product and
+        High-Frequency Radar Surface Velocities in the Southern California Bight</a>.
+        Center and boundary detection are described in section 3a, pp. 567–572;
+        streamfunction computation is described in the appendix, p. 578.
+        </p>
+        <p>
+Unlike the Chelton explorer, this method does not select regions by SSH
+        thresholds, a minimum SSH amplitude, or a pixel-count criterion. It operates
+        on velocity. SLA appears as map context, not as an acceptance condition.
+        </p>
+        <p>
+The detection explorer investigates one day at a time; the tracking explorer associates these daily results as described in section 8. Detecting a center and
+        estimating its boundary are separate operations: a center can pass all four
+        constraints but have no accepted boundary.
+        </p>
+    </section>
+    <section id="input">
+        <h2>2. Velocity field and coordinates</h2>
+        <p>
+The input consists of eastward velocity \(u\) and northward velocity \(v\),
+        in metres per second, on the same rectilinear grid. Arrays are indexed
+        \((i,j)\), with latitude along rows and longitude along columns.
+        Increasing \(i\) moves north; increasing \(j\) moves east.
+        </p>
+        <div class="equation">
+            \[
+                        S_{i,j}=\sqrt{u_{i,j}^{\,2}+v_{i,j}^{\,2}}.
+                        \]
+        </div>
+        <p>
+Here \(S\) is horizontal speed. Both coordinate arrays must be finite and
+        strictly increasing, and both velocity arrays must have matching dimensions.
+        Land and unavailable observations remain missing values; they are not filled
+        with artificial zero velocities.
+        </p>
+        <p>
+The explorer uses the daily geostrophic velocity fields supplied in the OSU
+        blended-altimetry dataset on a 0.25° grid. It does not apply the Chelton page's
+        Gaussian background removal to these velocities or add a mean current field.
+        Detections therefore characterize the supplied flow rather than establishing
+        the circulation of the full absolute current.
+        </p>
+        <p>
+Two parameters control center detection: \(a\), the velocity-growth search
+        distance and circulation scale, and \(b\), the speed-minimum search
+        half-width. They are measured in grid cells, not kilometres. In this
+        implementation \(a\geq 2\) and \(b\geq 1\).
+        </p>
+    </section>
+    <section id="center-detection">
+        <h2>3. Detecting eddy centers</h2>
+        <p>
+The algorithm first selects adjacent east–west pairs, then independently
+        tests each member as a candidate. A candidate advances only when the
+        previous constraint passes. A refined minimum already recorded as a center
+        is marked as a duplicate rather than counted as another eddy.
+        </p>
+        <h3 id="ew-constraint">3.1 East–west velocity reversal and growth</h3>
+        <p>
+For adjacent points \((i,j)\) and \((i,j+1)\), the northward velocity
+        component must have opposite signs. Its magnitude must be larger at
+        points \(a\) cells farther west and east, with the respective signs
+        preserved.
+        </p>
+        <div class="equation">
+            \[
+                        \begin{aligned}
+                        v_W &amp;=v_{i,j}, &amp; v_E &amp;=v_{i,j+1},\\
+                        v_{W,o} &amp;=v_{i,j-a}, &amp; v_{E,o} &amp;=v_{i,j+1+a}.
+                        \end{aligned}
+                        \]
+        </div>
+        <div class="equation">
+            \[
+                        \begin{gathered}
+                        v_Wv_E\lt 0,\\
+                        v_{W,o}v_W\gt 0,\qquad v_{E,o}v_E\gt 0,\\
+                        |v_{W,o}|\gt |v_W|,\qquad |v_{E,o}|\gt |v_E|.
+                        \end{gathered}
+                        \]
+        </div>
+        <p>
+Strict sign reversal means a zero component does not form a qualifying
+        opposite-sign pair. All sampled values must be finite and lie within
+        the grid. These conditions identify possible rotation, not a center by
+        themselves: shear and meanders can also produce sign changes.
+        </p>
+        <h3 id="ns-constraint">3.2 North–south velocity reversal and growth</h3>
+        <p>
+Each member \((i,k)\), where \(k\in\{j,j+1\}\), is tested separately.
+        The eastward velocity at \(a\) cells south and north must reverse sign,
+        imply the same eddy rotation as the first constraint, and have greater
+        magnitude than the eastward component at the original candidate.
+        </p>
+        <div class="equation">
+            \[
+                        \begin{gathered}
+                        u_S=u_{i-a,k},\qquad u_C=u_{i,k},\qquad u_N=u_{i+a,k},\\
+                        u_Su_N\lt 0,\qquad |u_S|\gt |u_C|,\qquad |u_N|\gt |u_C|.
+                        \end{gathered}
+                        \]
+        </div>
+        <div class="table-scroll">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Rotation about the center</th>
+                        <th>West \(v_W\)</th>
+                        <th>East \(v_E\)</th>
+                        <th>South \(u_S\)</th>
+                        <th>North \(u_N\)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Clockwise</td>
+                        <td>Positive</td>
+                        <td>Negative</td>
+                        <td>Negative</td>
+                        <td>Positive</td>
+                    </tr>
+                    <tr>
+                        <td>Counterclockwise</td>
+                        <td>Negative</td>
+                        <td>Positive</td>
+                        <td>Positive</td>
+                        <td>Negative</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <p>
+These clockwise/counterclockwise sign patterns follow the eastward and
+        northward coordinate directions. Cyclonic versus anticyclonic terminology
+        additionally depends on hemisphere. In the Northern Hemisphere,
+        counterclockwise circulation is cyclonic.
+        </p>
+        <h3 id="minimum-constraint">3.3 A stable local speed minimum</h3>
+        <p>
+The first two constraints nominate search locations. The third refines
+        each location to a local minimum of speed. Let \(W_b(p)\) be the square
+        window extending \(b\) cells in both coordinate directions from point
+        \(p\).
+        </p>
+        <div class="equation">
+            \[
+                        m_1=\underset{q\in W_b(p)}{\operatorname{arg\,min}}\,S(q),
+                        \qquad
+                        m_2=\underset{q\in W_b(m_1)}{\operatorname{arg\,min}}\,S(q).
+                        \]
+        </div>
+        <p>
+The refined point is retained only if \(m_2=m_1\). Thus the minimum must
+        remain a minimum when a second window is centered on it. For \(b=3\),
+        each search uses a 7 × 7 window; for \(b=2\), it uses a 5 × 5 window.
+        Both windows must fit inside the grid and contain only finite speeds.
+        Ties follow the array's deterministic first-minimum ordering.
+        </p>
+        <p>
+A low-speed point alone is not sufficient: a meander or a shear region
+        can also contain a stable minimum. The fourth constraint tests circulation
+        around that minimum.
+        </p>
+        <h3 id="rotation-constraint">3.4 Consistent circulation around the minimum</h3>
+        <p>
+A square perimeter is constructed at \(a-1\) cells from the refined minimum
+        along each axis. Its vectors are visited counterclockwise, starting at the
+        southwest corner. The perimeter has \(8(a-1)\) samples, with each corner
+        visited once.
+        </p>
+        <p>
+For velocity direction \(\theta_n\), the angular change between successive
+        vectors, including the closing pair, is
+        </p>
+        <div class="equation">
+            \[
+                        \theta_n=\operatorname{atan2}(v_n,u_n),\qquad
+                        \delta_n=\operatorname{Arg}\!\left[
+                            \exp\!\left(\mathrm{i}(\theta_{n+1}-\theta_n)\right)
+                        \right].
+                        \]
+        </div>
+        <p>
+The directions must progress without reversing, and consecutive vectors
+        must lie in the same quadrant or the next quadrant counterclockwise.
+        The implementation also verifies one complete turn:
+        </p>
+        <div class="equation">
+            \[
+                        \delta_n\geq-\varepsilon,\qquad
+                        (Q_{n+1}-Q_n)\bmod 4\in\{0,1\},\qquad
+                        \sum_n\delta_n\simeq 2\pi,
+                        \]
+        </div>
+        <p>
+where \(Q_n\) is the quadrant of the vector and \(\varepsilon\) is a small
+        numerical tolerance. Missing vectors and zero-speed vectors fail because
+        their direction cannot establish a complete circulation.
+        </p>
+        <p>
+            <strong>Perimeter traversal is not the eddy's rotation direction.</strong>
+        With a counterclockwise traversal, vector directions progress
+        counterclockwise for both clockwise and counterclockwise vortices.
+        Reversing the eddy reverses every velocity vector; it does not reverse
+        this spatial progression. The first two constraints determine the eddy's
+        clockwise or counterclockwise label.
+        </p>
+    </section>
+    <section id="boundaries">
+        <h2>4. Estimating eddy boundaries</h2>
+        <p>
+After a center passes the four constraints, a separate local calculation
+        estimates its boundary. This stage uses velocity-derived streamfunction
+        contours, not the SSH threshold regions used by the Chelton method.
+        </p>
+        <h3 id="streamfunction">4.1 Local streamfunction</h3>
+        <p>Following the paper's sign convention, the streamfunction differential is</p>
+        <div class="equation">
+            \[
+                        \mathrm{d}\psi=-v\,\mathrm{d}x+u\,\mathrm{d}y.
+                        \]
+        </div>
+        <p>
+The southwest corner of the local region is assigned zero streamfunction.
+        Two integration paths reach each point: east then north, or north then
+        east. Both paths are evaluated with trapezoidal sums and averaged, as in
+        appendix equations A1–A4.
+        </p>
+        <div class="equation">
+            \[
+                        \begin{aligned}
+                        \psi_{xy}(x,y)
+                            &amp;=-\int_{x_0}^{x}v(\xi,y_0)\,\mathrm{d}\xi
+                                  +\int_{y_0}^{y}u(x,\eta)\,\mathrm{d}\eta,\\
+                        \psi_{yx}(x,y)
+                            &amp;=\int_{y_0}^{y}u(x_0,\eta)\,\mathrm{d}\eta
+                                  -\int_{x_0}^{x}v(\xi,y)\,\mathrm{d}\xi,\\
+                        \psi(x,y)&amp;=\tfrac12\left(\psi_{xy}+\psi_{yx}\right).
+                        \end{aligned}
+                        \]
+        </div>
+        <p>
+Real velocity fields are not perfectly divergence-free, so the paths can
+        give different values. Averaging reduces path dependence; it does not
+        eliminate it or guarantee that every contour is an exact streamline.
+        </p>
+        <p>On the geographic grid, physical spacings are approximated by</p>
+        <div class="equation">
+            \[
+                        \Delta x\simeq R_\oplus\cos\phi\,\Delta\lambda,
+                        \qquad
+                        \Delta y\simeq R_\oplus\,\Delta\phi,
+                        \]
+        </div>
+        <p>
+with angular increments in radians and \(R_\oplus=6{,}371{,}000\) m.
+        The resulting streamfunction has units of m²/s. A contour's fractional
+        grid coordinates are interpolated to latitude and longitude for maps
+        and distance calculations.
+        </p>
+        <h3 id="boundary-selection">4.2 The outermost contour with radial speed growth</h3>
+        <p>
+The implementation samples 100 streamfunction levels between the local
+        minimum and maximum. A candidate contour must be closed and contain
+        the detected center. It must also pass a radial speed-growth test at its
+        northernmost, southernmost, easternmost, and westernmost points.
+        </p>
+        <p>For each extremum \(p\) and center \(c\), the current numerical stencil is</p>
+        <div class="equation">
+            \[
+                        \widehat{e}_r=\frac{p-c}{\lVert p-c\rVert},\qquad
+                        p_{\mathrm{in}}=p-\tfrac12\widehat{e}_r,\qquad
+                        p_{\mathrm{out}}=p+\tfrac12\widehat{e}_r,
+                        \]
+        </div>
+        <div class="equation">
+            \[
+                        S(p_{\mathrm{out}})\gt S(p_{\mathrm{in}})
+                        \quad\text{at all four extrema}.
+                        \]
+        </div>
+        <p>
+Positions in this stencil are fractional grid indices; speed is bilinearly
+        interpolated. An extremum within one grid cell of the center, an
+        out-of-region sample, or a non-finite sample fails the test. Among the
+        passing contours, the largest fractional polygon area selects the
+        outermost boundary. This area ranks contours; it is not reported as a
+        physical eddy area.
+        </p>
+        <p>
+The four-extremum growth condition comes from the paper. The 100 contour
+        levels, half-cell sampling stencil, and small-contour guard are explicit
+        numerical choices in this implementation. In particular, radial steps
+        are measured in grid-index space, whose physical scales differ between
+        longitude and latitude.
+        </p>
+        <h3 id="local-domain">4.3 Expanding and reducing the local region</h3>
+        <p>
+The initial region extends \(2a\) cells from the center in each direction,
+        giving a \((4a+1)\times(4a+1)\) array. If an accepted contour lies less
+        than 1.5 cells from a local edge, the half-width is increased by \(a\)
+        and the streamfunction and boundary are recomputed.
+        </p>
+        <p>
+If the region reaches the data boundary or includes land or missing
+        velocities, its half-width is reduced one cell at a time until a finite
+        region fits. Once limited in this way it is not enlarged again. The
+        current implementation stops without a boundary if no valid region
+        with half-width at least \(a\) can be used.
+        </p>
+        <p>
+The diagnostics retain land/missing-data and domain-edge limitation flags.
+        A flag means that the local integration region was constrained; it does
+        not necessarily mean that the final contour itself was cut by an edge.
+        </p>
+        <h3 id="radius">4.4 Circular estimates and the reported radius</h3>
+        <p>
+If no closed streamfunction contour surrounds the center, the paper allows
+        an estimated circular boundary of radius \(a-1\) grid cells. That fallback
+            is retained and labelled <strong>Estimated circle</strong>. A circle in
+        grid-index coordinates need not be a physical circle on a latitude–longitude
+        grid.
+        </p>
+        <p>
+This fallback is not used when closed contours exist but all fail the
+        growth test. That outcome is recorded as a detected center without an
+        accepted boundary.
+        </p>
+        <p>
+For an accepted contour with \(N\) distinct sampled points \(p_n\), the
+        reported radius is the mean great-circle distance from the center:
+        </p>
+        <div class="equation">
+            \[
+                        R_{\mathrm{eddy}}=\frac{1}{N}\sum_{n=1}^{N}d_{\mathrm{gc}}(c,p_n).
+                        \]
+        </div>
+        <p>
+Distances are calculated on a sphere using the haversine formula, in
+        kilometres, and the duplicated closing point is excluded from the mean.
+        This is not the Chelton explorer's area-equivalent radius, a diameter,
+        or an independently estimated radius of maximum speed.
+        </p>
+    </section>
+    <section id="parameters">
+        <h2>5. Parameter sensitivity and physical scale</h2>
+        <div class="table-scroll">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Parameter</th>
+                        <th>Role</th>
+                        <th>Interpretation</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>\(a\)</td>
+                        <td>Velocity-growth offsets and the \(a-1\) circulation perimeter</td>
+                        <td>A larger value tests coherence over a larger neighborhood; it can miss smaller or distorted features.</td>
+                    </tr>
+                    <tr>
+                        <td>\(b\)</td>
+                        <td>Half-width of both speed-minimum searches</td>
+                        <td>Controls how far a candidate can move to a stable minimum. Several searches can reach the same center.</td>
+                    </tr>
+                    <tr>
+                        <td>Contour levels</td>
+                        <td>Numerical boundary sampling; default 100</td>
+                        <td>Separate from the method's two tuning parameters. Small contours can be missed or change size with coarse sampling.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <p>
+The paper used \(a=4,b=3\) for its 1 km model example. Those values are
+        not a universal setting. The OSU grid spacing is 0.25°: approximately
+        27.8 km north–south, with a smaller, latitude-dependent east–west spacing.
+        The same integer parameters therefore test much larger physical scales.
+        </p>
+        <p>
+The explorer's parameter sweep counts centers passing the four constraints.
+        Boundary selection runs when a configuration is inspected. Consequently,
+        a sweep count is not the number of accepted boundaries. More detections
+        alone do not establish a better parameter choice.
+        </p>
+        <p>
+For the evaluated 1993-01-01 field, \(a=2,b=2\) yields 16 centers and
+        6 accepted boundaries; \(a=4,b=3\) yields no centers. These are results
+        on this particular regional field, not the paper's published counts or
+        evidence that \(a=2,b=2\) is optimal on other dates.
+        </p>
+    </section>
+    <section id="diagnostics">
+        <h2>6. Interpreting candidate diagnostics</h2>
+        <p>
+The candidate table starts after criterion 1: every qualifying east–west
+        pair produces two independent searches. Rejected searches are assigned
+        their first failed check. Subsequent checks are marked <strong>Not
+        evaluated</strong>, rather than failed.
+        </p>
+        <div class="table-scroll">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Decision</th>
+                        <th>Meaning</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>North–south velocity</td>
+                        <td>Signs, growth, or rotation agreement fail at the second constraint.</td>
+                    </tr>
+                    <tr>
+                        <td>Stable speed minimum</td>
+                        <td>The minimum searches disagree, or a required window is unavailable or contains missing data.</td>
+                    </tr>
+                    <tr>
+                        <td>Perimeter outside grid</td>
+                        <td>The circulation square cannot be evaluated within the data domain.</td>
+                    </tr>
+                    <tr>
+                        <td>Closed circulation</td>
+                        <td>The perimeter contains missing/zero vectors, reverses angular progression, skips a quadrant, or fails the full-turn check.</td>
+                    </tr>
+                    <tr>
+                        <td>Duplicate center</td>
+                        <td>The search reaches an already recorded center. It is not a separate eddy or another center failure.</td>
+                    </tr>
+                    <tr>
+                        <td>Insufficient ocean region</td>
+                        <td>No usable local region is available for boundary estimation.</td>
+                    </tr>
+                    <tr>
+                        <td>Boundary radial growth</td>
+                        <td>Closed contours exist, but none passes the implemented growth test.</td>
+                    </tr>
+                    <tr>
+                        <td>Boundary accepted</td>
+                        <td>A center has a passing streamfunction contour or a labelled circular estimate.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <p>
+Pair counts, search counts, unique-center counts, and accepted-boundary
+        counts are different quantities. Candidate IDs are specific to the
+        selected date and parameter configuration, and duplicates are reported
+        separately.
+        </p>
+        <p>
+The inspector shows the original candidate, refined minimum, velocity
+        sections, search neighborhoods, angular progression, and available
+        boundary-growth evidence. Some plots illustrate geometry for checks
+        that were not reached; the outcome table records the actual evaluation.
+        The largest rejected contour may be shown as an example, not as an
+        accepted boundary.
+        </p>
+        <p><a href="{% url 'nencioli_detection' %}">Open the Nencioli explorer to investigate a date and candidate</a>.</p>
+    </section>
+    <section id="paper-differences">
+        <h2>7. Comparison with the paper and limits</h2>
+        <div class="table-scroll">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Aspect</th>
+                        <th>What is preserved</th>
+                        <th>What to account for here</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Center detection</td>
+                        <td>The four sequential velocity-geometry constraints, two minimum searches, and \(a-1\) perimeter.</td>
+                        <td>Strict missing-data handling, a numerical full-turn check, and deterministic minimum tie handling are explicit implementation details.</td>
+                    </tr>
+                    <tr>
+                        <td>Boundary estimation</td>
+                        <td>Two-path streamfunction integration, growth at four extrema, adaptive local regions, and the documented circular fallback.</td>
+                        <td>Contour sampling, polygon ranking, the half-cell stencil, and geographic grid metrics influence the estimated boundary.</td>
+                    </tr>
+                    <tr>
+                        <td>Input data</td>
+                        <td>Detection uses horizontal velocity, as required by the method.</td>
+                        <td>This regional daily geostrophic dataset differs from the paper's model and HF-radar examples. Resolution and the supplied velocity field determine which features can be resolved.</td>
+                    </tr>
+                    <tr>
+                        <td>Tracking</td>
+                        <td>Daily detection is followed by same-polarity center association in the Tracking Explorer (section 8).</td>
+                        <td>This project's distance-based greedy tracking and configurable calendar-span filtering are adaptations. Single-day detection counts remain snapshot counts, not tracked-catalogue counts.</td>
+                    </tr>
+                    <tr>
+                        <td>Validation</td>
+                        <td>Diagnostics expose the criteria and measurements used for each decision.</td>
+                        <td>Geometric consistency is not an independent truth label. Success and excess-of-detection rates require an independently annotated eddy field.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <p>
+Features with radii of only one or two grid cells remain poorly resolved.
+        Parameter sensitivity, contour-resolution checks, and visual inspection
+        help assess numerical behavior, but they do not by themselves establish
+        detection accuracy, dynamical coherence, or long-term persistence.
+        </p>
+    </section>
+    <section id="tracking">
+        <h2>8. Tracking eddies across days</h2>
+        <p>The <a href="{% url 'nencioli_tracker' %}">Nencioli Tracking Explorer</a>
+        runs daily detection and then associates accepted detections through time.
+            This section describes <code>track_nencioli()</code> in this project:
+        distance-based searches and greedy conflict resolution are practical adaptations,
+        not an exact reproduction of the paper's grid-window tracking implementation.
+        </p>
+
+        <h3 id="tracking-inputs">8.1 Daily detections and center coordinates</h3>
+        <p>
+For each calendar day in the selected interval, the explorer loads the
+        supplied eastward and northward velocity fields on an exactly aligned grid,
+        applies the selected \(a,b\) configuration, and converts accepted results
+            with <code>standardize_nencioli()</code>. Detection is independent on each day;
+        a previous track does not influence the next day's center search. Only results
+        with an accepted boundary, including accepted circular estimates, enter tracking.
+        </p>
+        <p>
+Each standardized detection carries a date, polarity, contour, and size.
+        Tracking distances and trajectory coordinates prefer the native velocity-based
+        grid center. If either native coordinate is unavailable, both coordinates fall
+        back to the standardized spherical mean of contour vertices. The tracking
+        page reports the standardized area-equivalent radius
+        \(r=\sqrt{A/\pi}\), where \(A\) is the spherical contour area;
+        this differs from the detection explorer's mean center-to-boundary radius in section 4.4.
+        </p>
+        <p>
+Unavailable source dates are inserted as empty detection lists and listed
+        on the results page. An available day with no accepted detections is also empty
+        for association. Processing errors stop the run with a form error; they are not
+        silently converted into missing observations. The explorer rejects coordinate-grid
+        changes within the selected interval.
+        </p>
+
+        <h3 id="tracking-distance">8.2 Great-circle search distance</h3>
+        <p>
+The tracker uses the haversine distance between the last observed center
+        and a candidate center. With latitudes \(\phi_1,\phi_2\), wrapped longitude
+        difference \(\Delta\lambda\in[-\pi,\pi)\), and angles in radians:
+        </p>
+        <div class="equation">
+            \[
+            h=\sin^2\!\left(\frac{\phi_2-\phi_1}{2}\right)
+              +\cos\phi_1\cos\phi_2\sin^2\!\left(\frac{\Delta\lambda}{2}\right),
+            \qquad d=2R\arcsin\sqrt{\operatorname{clip}(h,0,1)},
+            \quad R=6371\ \mathrm{km}.
+            \]
+        </div>
+        <p>
+Candidate polarity must equal the track's last observed polarity exactly.
+        Unknown polarity therefore matches only unknown polarity here. No contour IoU,
+        radius similarity, amplitude criterion, or motion prediction is used.
+        </p>
+
+        <h3 id="tracking-assignment">8.3 Two-pass association and conflict resolution</h3>
+        <ol>
+            <li>
+                <strong>Adjacent-day pass.</strong> For each active track last observed
+            yesterday, collect today's same-polarity candidates with
+            \(d\leq r_{\mathrm{daily}}\), default 30 km.
+            </li>
+            <li>
+                <strong>Greedy assignment.</strong> Sort all candidates in this pass
+            by increasing distance. Accept a pair only if neither the track nor
+            today's detection has already been assigned. Equal-distance ties use
+            track ID, then the detection's position in today's input list.
+            </li>
+            <li>
+                <strong>One-day-gap pass.</strong> Using the remaining unassigned
+            detections, repeat for tracks last observed two calendar days ago with
+            \(d\leq r_{\mathrm{gap}}\), default 45 km. Adjacent-day assignments have
+            priority even if a gap candidate would be closer. The gap threshold is
+            the total two-day displacement, not a per-day radius.
+            </li>
+            <li>
+                <strong>Close or start tracks.</strong> After both passes, close tracks
+            whose latest observation is more than one day old. Today's remaining
+            detections each start a new track with an incrementing run-local ID.
+            </li>
+        </ol>
+        <p>
+A track may bridge one missing detection day at a time, and may do so
+        repeatedly if observations resume between gaps. Two consecutive missing days
+        close it. No observation is inserted during a gap, and closed tracks are not
+        reopened. Each detection belongs to at most one track; tracks do not split or
+        merge. The greedy procedure does not optimize complete trajectories jointly.
+        </p>
+        <p>
+The Tracking Explorer uses this greedy, two-pass procedure with one-day
+        recovery enabled. Its form exposes the daily and gap radii, rather than an
+        assignment-method selector or a switch to disable gaps. These are the
+        settings described here, even though the underlying tracking function also
+        supports other association configurations.
+        </p>
+
+        <h3 id="tracking-lifetime">8.4 Lifetime filtering and controls</h3>
+        <div class="table-scroll">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Control</th>
+                        <th>Default</th>
+                        <th>Meaning</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Duration</td>
+                        <td>10 days</td>
+                        <td>1–30 consecutive calendar days, including the starting date.</td>
+                    </tr>
+                    <tr>
+                        <td>Detection \(a,b\)</td>
+                        <td>4, 3 grid cells</td>
+                        <td>The same daily detection parameters; the form permits \(2\leq a\leq10\) and \(1\leq b\leq10\).</td>
+                    </tr>
+                    <tr>
+                        <td>Daily radius</td>
+                        <td>30 km</td>
+                        <td>Positive maximum displacement over one calendar day, inclusive.</td>
+                    </tr>
+                    <tr>
+                        <td>Gap radius</td>
+                        <td>45 km</td>
+                        <td>Positive maximum displacement over two calendar days, inclusive.</td>
+                    </tr>
+                    <tr>
+                        <td>Assignment and gap handling</td>
+                        <td>Greedy; one missing day</td>
+                        <td>Fixed by this explorer; adjacent-day matches take priority over recovery.</td>
+                    </tr>
+                    <tr>
+                        <td>Minimum lifetime</td>
+                        <td>4 days</td>
+                        <td>Inclusive calendar span; must be at least one day and no greater than the selected duration.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <div class="equation">
+            \[L=(t_{\mathrm{last}}-t_{\mathrm{first}})_{\mathrm{days}}+1.\]
+        </div>
+        <p>
+Filtering is applied after association. For example, observations on days
+        1, 2, and 4 form three observations with a four-day lifetime and meet the
+        default minimum. Track IDs are not renumbered after filtering, so gaps in IDs
+        are expected. Reported track counts, polarity counts, mean and maximum lifetime,
+        total observations, and mean radii describe accepted tracks only. An empty
+        result has zero counts and unavailable lifetime statistics.
+        </p>
+
+        <h3 id="tracking-interpretation">8.5 Reading trajectories and repeated centers</h3>
+        <p>
+The map uses solid connections for adjacent days and separated dash segments
+        across a missing detection day. Only markers represent observations. The
+        selected-track time series shows each observed date's great-circle distance
+        from that track's first assigned center, not cumulative path length or speed;
+        missing dates are not interpolated.
+        </p>
+        <p>
+Grid points show dataset centers with non-NaN SLA on the first available
+        day in the run. This is a display mask, not a tracking acceptance criterion
+        or a guarantee of valid velocity on every day. Hover counts report how many
+        observations within the same track share the exact center coordinates.
+        </p>
+        <p>
+Six identical coordinates mean that the detector assigned the same grid
+        location on six dates, not that the physical eddy was stationary. The repeated-center
+        summary counts accepted tracks with at least two observations using a single
+        center throughout, and identical-center observation pairs on consecutive calendar
+        days (excluding gaps). Frequent repeats can motivate checking grid resolution,
+        velocity fields, and parameter sensitivity; these counts alone do not diagnose
+        a detector error.
+        </p>
+        <p>
+Track endpoints are limited by the selected interval and data coverage.
+        Associations do not establish material coherence or an independently validated
+        eddy identity. Larger radii can connect distinct nearby features; smaller radii
+        and stricter lifetime filtering can fragment or remove real trajectories.
+        Processing is synchronous and capped at 30 days in this explorer.
+        </p>
+    </section>
+{% endblock %}

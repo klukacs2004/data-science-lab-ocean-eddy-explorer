@@ -1,0 +1,94 @@
+.halo-results section,
+.halo-results details {
+    scroll-margin-top: 20px;
+}
+
+.result-nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 20px;
+    font-size: 13px;
+    margin-bottom: 20px;
+}
+
+.parameter-presets {
+    display: grid;
+    gap: 8px;
+}
+
+.parameter-presets button {
+    font-size: 12px;
+    padding: 9px;
+    text-align: left;
+}
+
+.halo-results .explanation {
+    padding: 14px 18px;
+    border-left: 3px solid #11879a;
+    background: var(--control);
+    color: var(--ink);
+}
+
+.diagnostic-controls,
+.inspector-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    gap: 14px;
+    margin: 18px 0;
+}
+
+.diagnostic-controls select {
+    max-width: 310px;
+}
+
+.table-button {
+    padding: 5px 9px;
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+.candidate-scroll {
+    max-height: 460px;
+}
+
+.candidate-scroll thead {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+.paper-table td,
+.paper-table th {
+    min-width: 150px;
+}
+
+.paper-table td {
+    min-width: 220px;
+}
+
+@media (max-width: 680px) {
+    .halo-results .stats {
+        grid-template-columns: 1fr;
+    }
+
+    .halo-results .stat {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .halo-results .stat strong {
+        margin-top: 0;
+    }
+
+    .diagnostic-controls>div,
+    .diagnostic-controls select {
+        width: 100%;
+        max-width: 100%;
+    }
+
+    .halo-results .panel-head {
+        flex-wrap: wrap;
+    }
+}
