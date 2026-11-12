@@ -16,10 +16,20 @@ cd REPOSITORY
 ```
 ##  Prepare the dataset
 
-Download the required OSU NetCDF dataset (22 individual NetCDF files have been added to a single TAR file) from https://ir.library.oregonstate.edu/concern/datasets/fn107383f?locale=en and place the files in the data directory configured by the application or set `SLA_DATA_DIR` in
-`method_website/.env` to your existing directory.
+Download the required OSU NetCDF dataset (22 individual NetCDF files have been added to a single TAR file) from https://ir.library.oregonstate.edu/concern/datasets/fn107383f?locale=en and place the files in the data directory configured by the application or set `SLA_DATA_DIR` in `method_website/.env` to your existing directory. Leave `SLA_DATA_DIR` empty to discover the usual `../data/` or `./data/`.
 
 Ensure that the application can access the dataset before starting the server.
+
+The website can show its documentation without daily inputs. Detection and
+tracking need decompressed `osu_daily_sla_geovel_YYYY_v2.nc` files.
+
+```bash
+method_website/.venv/bin/python method_website/manage.py checkdata
+python3.12 method_website/run.py --check
+```
+
+The first command requires data. The second also permits an installation with
+no data, reporting how to add it.
 
 ## Run locally
 
@@ -42,23 +52,6 @@ at **http://127.0.0.1:8000/**. Stop it with Ctrl+C.
 If your Python command is named `python3`, check `python3 --version` and use it
 instead when it reports Python 3.12. An already activated compatible environment
 can run `python method_website/run.py --prepare` without creating another venv.
-
-## Input data
-
-  Relative paths in `.env`
-are resolved against **method_website/**, independent of the terminal's current
-directory. Leave `SLA_DATA_DIR` empty to discover the usual `../data/` or `./data/`.
-
-The website can show its documentation without daily inputs. Detection and
-tracking need decompressed `osu_daily_sla_geovel_YYYY_v2.nc` files.
-
-```bash
-method_website/.venv/bin/python method_website/manage.py checkdata
-python3.12 method_website/run.py --check
-```
-
-The first command requires data. The second also permits an installation with
-no data, reporting how to add it.
 
 
 ## Reading the code
